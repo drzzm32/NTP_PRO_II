@@ -1,5 +1,5 @@
-#ifndef __CH558_H
-#define __CH558_H
+#ifndef __CH559_H
+#define __CH559_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -147,14 +147,16 @@ __sfr   __at (0xB8)         IP;         // interrupt priority and current priori
 __sfr   __at (0xE8)         IE_EX;      // extend interrupt enable
  __sbit __at (0xEF)         IE_WDOG;    // enable watch-dog timer interrupt
  __sbit __at (0xEE)         IE_GPIO;    // enable GPIO input interrupt
+ __sbit __at (0xED)         IE_PWM1;    // enable PWM1 interrupt
  __sbit __at (0xEC)         IE_UART1;   // enable UART1 interrupt
  __sbit __at (0xEB)         IE_ADC;     // enable ADC interrupt
  __sbit __at (0xEA)         IE_USB;     // enable USB interrupt
- __sbit __at (0xE9)         IE_TMR3;    // enable timer interrupt
+ __sbit __at (0xE9)         IE_TMR3;    // enable timer3 interrupt
  __sbit __at (0xE8)         IE_SPI0;    // enable SPI0 interrupt
 __sfr   __at (0xE9)         IP_EX;      // extend interrupt priority
 #define bIP_LEVEL           0x80        // ReadOnly: current interrupt nested level: 0=no interrupt or two levels, 1=one level
 #define bIP_GPIO            0x40        // GPIO input interrupt priority level
+#define bIP_PWM1            0x20        // PWM1 interrupt priority level
 #define bIP_UART1           0x10        // UART1 interrupt priority level
 #define bIP_ADC             0x08        // ADC interrupt priority level
 #define bIP_USB             0x04        // USB interrupt priority level
@@ -212,7 +214,7 @@ __sfr   __at (0xC4)         P0_DIR;     // port 0 direction
 #define bRXD_               0x04        // alternate pin for RXD of UART0
 #define bURTS               0x02        // RTS output for UART1
 #define bUDTR               0x01        // DTR output for UART1
-__sfr   __at (0xC5)         P0_PU;      // port 0 pullup enable
+__sfr  __at (0xC5)          P0_PU;      // port 0 pullup enable
 __sfr   __at (0x90)         P1;         // port 1 input & output, not 5VT
  __sbit __at (0x97)         P17;
  __sbit __at (0x96)         P16;
@@ -266,15 +268,25 @@ __sfr   __at (0xA0)         P2;         // port 2 input & output
  __sbit __at (0xA7)         DA7;        // address 7 output for direct low address mode
  __sbit __at (0xA6)         RXD1;       // RXD input for UART1
  __sbit __at (0xA5)         TNOW;       // tx now output for UART1, indicate transmitting
+ __sbit __at (0xA5)         PWM2;       // second PWM output for PWM1
  __sbit __at (0xA5)         T2EX_;      // alternate pin for T2EX
  __sbit __at (0xA5)         CAP2_;      // alternate pin for CAP2
+ __sbit __at (0xA4)         PWM1;       // PWM output for PWM1
+ __sbit __at (0xA3)         SCK1;       // serial clock output for SPI1
+ __sbit __at (0xA2)         MISO1;      // master serial data input for SPI1
+ __sbit __at (0xA1)         MOSI1;      // master serial data output for SPI1
 __sfr   __at (0xBC)         P2_DIR;     // port 2 direction
 #define bTXD1               0x80        // TXD output for UART1
 #define bDA7                0x80        // address 7 output for direct low address mode
 #define bRXD1               0x40        // RXD input for UART1
 #define bTNOW               0x20        // tx now output for UART1, indicate transmitting
+#define bPWM2               0x20        // second PWM output for PWM1
 #define bT2EX_              0x20        // alternate pin for T2EX
 #define bCAP2_              bT2EX_      // alternate pin for CAP2
+#define bPWM1               0x10        // PWM output for PWM1
+#define bSCK1               0x08        // serial clock output for SPI1
+#define bMISO1              0x04        // master serial data input for SPI1
+#define bMOSI1              0x02        // master serial data output for SPI1
 __sfr   __at (0xBD)         P2_PU;      // port 2 pullup enable
 __sfr   __at (0xB0)         P3;         // port 3 input & output
  __sbit __at (0xB7)         P37;
@@ -324,19 +336,23 @@ __sfr   __at (0xC0)         P4_OUT;     // port 4 output
  __sbit __at (0xC0)         P40;
  __sbit __at (0xC7)         SCK_;       // alternate pin for SCK
  __sbit __at (0xC6)         SCS_;       // alternate pin for SCS
+ __sbit __at (0xC5)         PWM2_;      // alternate pin for PWM2
  __sbit __at (0xC4)         LED3;       // LED3 data output
  __sbit __at (0xC4)         TNOW_;      // alternate pin for TNOW
  __sbit __at (0xC4)         TXD1_;      // alternate pin for TXD1
+ __sbit __at (0xC3)         PWM1_;      // alternate pin for PWM1
  __sbit __at (0xC2)         PWM3_;      // alternate pin for PWM3
  __sbit __at (0xC2)         CAP3_;      // alternate pin for CAP3
  __sbit __at (0xC0)         LED2;       // LED2 data output
  __sbit __at (0xC0)         RXD1_;      // alternate pin for RXD1
-__sfr   __at (0xC1)         P4_IN;      // ReadOnly: port 4 input
+__sfr   __at (0xC1)         P4_IN;       // ReadOnly: port 4 input
 #define bSCK_               0x80        // alternate pin for SCK, not 5VT
 #define bSCS_               0x40        // alternate pin for SCS, not 5VT
+#define bPWM2_              0x20        // alternate pin for PWM2
 #define bLED3               0x10        // LED3 data output
 #define bTNOW_              0x10        // alternate pin for TNOW
 #define bTXD1_              bTNOW_      // alternate pin for TXD1
+#define bPWM1_              0x08        // alternate pin for PWM1
 #define bPWM3_              0x04        // alternate pin for PWM3
 #define bCAP3_              bPWM3_      // alternate pin for CAP3
 #define bLED2               0x01        // LED2 data output
@@ -371,6 +387,7 @@ __sfr   __at (0xC6)         PORT_CFG;   // port 0/1/2/3 config
 //   1 0 1:  quasi-bidirectional (simulated 8051 mode), open-drain output with pullup resistance
 //   1 1 1:  quasi-bidirectional (standard 8051 mode), open-drain output with pullup resistance, just driving high level strongly for 2 clocks if turning output level from low to high
 __sfr   __at (0xCE)         PIN_FUNC;   // pin function selection
+#define bPWM1_PIN_X         0x80        // PWM1/PWM2 alternate pin enable: 0=PWM1/PWM2 on P2.4/P2.5, 1=PWM1/PWM2 on P4.3/P4.5
 #define bTMR3_PIN_X         0x40        // PWM3/CAP3 alternate pin enable: 0=PWM3/CAP3 on P1.2, 1=PWM3/CAP3 on P4.2
 #define bT2EX_PIN_X         0x20        // T2EX/CAP2 alternate pin enable: 0=T2EX/CAP2 on P1.1, 1=T2EX/CAP2 on P2.5
 #define bUART0_PIN_X        0x10        // UART0 alternate pin enable: 0=RXD0/TXD0 on P3.0/P3.1, 1=RXD0/TXD0 on P0.2/P0.3
@@ -489,9 +506,9 @@ __sfr   __at (0xCB)         RCAP2H;     // high byte of reload & capture value
 __sfr16 __at (0xCDCC)       T2COUNT;    // counter, little-endian
 __sfr   __at (0xCC)         TL2;        // low byte of timer 2 count
 __sfr   __at (0xCD)         TH2;        // high byte of timer 2 count
-#define T2CAP1              T2COUNT     // ReadOnly: capture 1 value for timer2
-#define T2CAP1L             TL2         // ReadOnly: capture 1 value low byte for timer2
-#define T2CAP1H             TH2         // ReadOnly: capture 1 value high byte for timer2
+__sfr16 __at (0xCDCC)       T2CAP1;     // ReadOnly: capture 1 value for timer2
+__sfr   __at (0xCC)         T2CAP1L;    // ReadOnly: capture 1 value low byte for timer2
+__sfr   __at (0xCD)         T2CAP1H;    // ReadOnly: capture 1 value high byte for timer2
 
 /*  Timer3/Capture3/PWM3 Registers  */
 __sfr   __at (0xA3)         T3_SETUP;   // timer 3 setup
@@ -541,6 +558,23 @@ __sfr16 __at (0xAFAE)       T3_FIFO;    // FIFO word, little-endian
 __sfr   __at (0xAE)         T3_FIFO_L;  // FIFO low byte
 __sfr   __at (0xAF)         T3_FIFO_H;  // FIFO high byte
 
+/*  PWM1/2 Registers  */
+__sfr   __at (0x9B)         PWM_DATA2;  // PWM data for PWM2
+__sfr   __at (0x9C)         PWM_DATA;   // PWM data for PWM1
+__sfr   __at (0x9D)         PWM_CTRL;   // PWM 1/2 control
+#define bPWM_IE_END         0x80        // enable interrupt for PWM mode cycle end or MFM empty buffer
+#define bPWM2_POLAR         0x40        // PWM2 output polarity if bPWM_MOD_MFM=0: 0=default low and high action, 1=default high and low action
+#define bMFM_BUF_EMPTY      0x40        // ReadOnly: MFM empty buffer status if bPWM_MOD_MFM=1
+#define bPWM_POLAR          0x20        // PWM output polarity: 0=default low and high action, 1=default high and low action
+#define bPWM_IF_END         0x10        // interrupt flag for cycle end, write 1 to clear or write PWM_CYCLE or load new data to clear
+#define bPWM_OUT_EN         0x08        // PWM1 output enable
+#define bPWM2_OUT_EN        0x04        // PWM2 output enable if bPWM_MOD_MFM=0
+#define bMFM_BIT_CNT2       0x04        // ReadOnly: MFM encode bit count status if bPWM_MOD_MFM=1: 0=lower 4 bits, 1=upper 4 bits
+#define bPWM_CLR_ALL        0x02        // force clear FIFO and count of PWM1/2
+#define bPWM_MOD_MFM        0x01        // MFM encode mode for PWM: 0=PWM, 1=MFM encode
+__sfr   __at (0x9E)         PWM_CK_SE;  // clock divisor setting
+__sfr   __at (0x9F)         PWM_CYCLE;  // PWM cycle
+
 /*  SPI0/Master0/Slave Registers  */
 __sfr   __at (0xF8)         SPI0_STAT;  // SPI 0 status
  __sbit __at (0xFF)         S0_FST_ACT; // ReadOnly: indicate first byte received status for SPI0
@@ -572,6 +606,21 @@ __sfr   __at (0xFC)         SPI0_SETUP; // SPI 0 setup
 #define bS0_BIT_ORDER       0x08        // SPI0 bit data order: 0=MSB first, 1=LSB first
 #define bS0_SLV_SELT        0x02        // ReadOnly: SPI0 slave mode chip selected status: 0=unselected, 1=selected
 #define bS0_SLV_PRELOAD     0x01        // ReadOnly: SPI0 slave mode data pre-loading status just after chip-selection
+
+/*  SPI1/Master1 Registers  */
+__sfr   __at (0xB4)         SPI1_STAT;  // SPI 1 status
+#define bS1_IF_BYTE         0x10        // interrupt flag for a byte data exchanged, write 1 to clear or accessing FIFO to clear if bS1_AUTO_IF=1
+#define bS1_FREE            0x08        // ReadOnly: SPI1 free status
+__sfr   __at (0xB5)         SPI1_DATA;  // data port: reading for receiving, writing for transmittal
+__sfr   __at (0xB6)         SPI1_CTRL;  // SPI 1 control
+#define bS1_MISO_OE         0x80        // SPI1 MISO output enable
+#define bS1_SCK_OE          0x20        // SPI1 SCK output enable, MOSI output enable if bS1_2_WIRE=0
+#define bS1_DATA_DIR        0x10        // SPI1 data direction: 0=out(master_write), 1=in(master_read)
+#define bS1_MST_CLK         0x08        // SPI1 master clock mode: 0=mode 0 with default low, 1=mode 3 with default high
+#define bS1_2_WIRE          0x04        // enable SPI1 two wire mode: 0=3 wire (SCK+MOSI+MISO), 1=2 wire (SCK+MISO)
+#define bS1_CLR_ALL         0x02        // force clear FIFO and count of SPI1
+#define bS1_AUTO_IF         0x01        // enable FIFO accessing to auto clear bS1_IF_BYTE interrupt flag
+__sfr   __at (0xB7)         SPI1_CK_SE; // clock divisor setting
 
 /*  UART1/iRS485 Registers  */
 __sfr   __at (0x9A)         SER1_FIFO;  // UART1 FIFO data port: reading for receiving, writing for transmittal
@@ -741,7 +790,7 @@ __sfr   __at (0xF7)         ADC_EX_SW;// ADC extend switch control
 #define bADC_AIN7_DLY0      0x01      // AIN7 level check delay control bit 0
 #define MASK_ADC_AIN7_DLY   0x03      // bit mask for AIN7 check delay control: 01=longest, 10=longer, 11=shorter, 00=shortest (no delay)
 
-/*  USB Registers  */
+/*  USB/Host/Device Registers  */
 __sfr   __at (0xD1)         USB_RX_LEN; // ReadOnly: USB receiving length
 __sfr   __at (0xD2)         UEP1_CTRL;// endpoint 1 control
 #define bUEP_R_TOG          0x80      // expected data toggle flag of USB endpoint X receiving (OUT): 0=DATA0, 1=DATA1
@@ -781,9 +830,11 @@ __sfr   __at (0xD8)         USB_INT_FG; // USB interrupt flag
  __sbit __at (0xDE)         U_TOG_OK;   // ReadOnly: indicate current USB transfer toggle is OK
  __sbit __at (0xDD)         U_SIE_FREE; // ReadOnly: indicate USB SIE free status
  __sbit __at (0xDC)         UIF_FIFO_OV;// FIFO overflow interrupt flag for USB, direct bit address clear or write 1 to clear
+ __sbit __at (0xDB)         UIF_HST_SOF;// host SOF timer interrupt flag for USB host, direct bit address clear or write 1 to clear
  __sbit __at (0xDA)         UIF_SUSPEND;// USB suspend or resume event interrupt flag, direct bit address clear or write 1 to clear
  __sbit __at (0xD9)         UIF_TRANSFER; // USB transfer completion interrupt flag, direct bit address clear or write 1 to clear
- __sbit __at (0xD8)         UIF_BUS_RST;// bus reset event interrupt flag, direct bit address clear or write 1 to clear
+ __sbit __at (0xD8)         UIF_DETECT; // device detected event interrupt flag for USB host mode, direct bit address clear or write 1 to clear
+ __sbit __at (0xD8)         UIF_BUS_RST;// bus reset event interrupt flag for USB device mode, direct bit address clear or write 1 to clear
 __sfr   __at (0xD9)         USB_INT_ST; // ReadOnly: USB interrupt status
 #define bUIS_IS_NAK         0x80      // ReadOnly: indicate current USB transfer is NAK received
 #define bUIS_TOG_OK         0x40      // ReadOnly: indicate current USB transfer toggle is OK
@@ -794,40 +845,61 @@ __sfr   __at (0xD9)         USB_INT_ST; // ReadOnly: USB interrupt status
 #define UIS_TOKEN_SOF       0x10
 #define UIS_TOKEN_IN        0x20
 #define UIS_TOKEN_SETUP     0x30
-// bUIS_TOKEN1 & bUIS_TOKEN0: current token PID code received
+// bUIS_TOKEN1 & bUIS_TOKEN0: current token PID code received for USB device mode
 //   00: OUT token PID received
 //   01: SOF token PID received
 //   10: IN token PID received
 //   11: SETUP token PID received
-#define MASK_UIS_ENDP       0x0F      // ReadOnly: bit mask of current transfer endpoint number
+#define MASK_UIS_ENDP       0x0F      // ReadOnly: bit mask of current transfer endpoint number for USB device mode
+#define MASK_UIS_H_RES      0x0F      // ReadOnly: bit mask of current transfer handshake response for USB host mode: 0000=no response, time out from device, others=handshake response PID received
 __sfr   __at (0xDA)         USB_MIS_ST; // ReadOnly: USB miscellaneous status
+#define bUMS_SOF_PRES       0x80      // ReadOnly: indicate host SOF timer presage status
+#define bUMS_SOF_ACT        0x40      // ReadOnly: indicate host SOF timer action status for USB host
 #define bUMS_SIE_FREE       0x20      // ReadOnly: indicate USB SIE free status
 #define bUMS_R_FIFO_RDY     0x10      // ReadOnly: indicate USB receiving FIFO ready status (not empty)
 #define bUMS_BUS_RESET      0x08      // ReadOnly: indicate USB bus reset status
 #define bUMS_SUSPEND        0x04      // ReadOnly: indicate USB suspend status
+#define bUMS_H1_ATTACH      0x02      // ReadOnly: indicate device attached status on USB hub1 HP/HM
+#define bUMS_H0_ATTACH      0x01      // ReadOnly: indicate device attached status on USB hub0 DP/DM
+__sfr   __at (0xDB)         USB_HUB_ST; // ReadOnly: USB host hub status
+#define bUHS_H1_ATTACH      0x80      // ReadOnly: indicate device attached status on USB hub1 HP/HM
+#define bUHS_HM_LEVEL       0x40      // ReadOnly: indicate HM level saved at device attached to USB hub1
+#define bUHS_HP_PIN         0x20      // ReadOnly: indicate current HP pin level
+#define bUHS_HM_PIN         0x10      // ReadOnly: indicate current HM pin level
+#define bUHS_H0_ATTACH      0x08      // ReadOnly: indicate device attached status on USB hub0 DP/DM
+#define bUHS_DM_LEVEL       0x04      // ReadOnly: indicate DM level saved at device attached to USB hub0
+#define bUHS_DP_PIN         0x02      // ReadOnly: indicate current DP pin level
+#define bUHS_DM_PIN         0x01      // ReadOnly: indicate current DM pin level
 __sfr   __at (0xDC)         UEP0_CTRL;// endpoint 0 control
 __sfr   __at (0xDD)         UEP0_T_LEN; // endpoint 0 transmittal length
 __sfr   __at (0xDE)         UEP4_CTRL;  // endpoint 4 control
 __sfr   __at (0xDF)         UEP4_T_LEN; // endpoint 4 transmittal length
 __sfr   __at (0xE1)         USB_INT_EN; // USB interrupt enable
-#define bUIE_DEV_SOF        0x80      // enable interrupt for SOF received
-#define bUIE_DEV_NAK        0x40      // enable interrupt for NAK responded
+#define bUIE_DEV_SOF        0x80      // enable interrupt for SOF received for USB device mode
+#define bUIE_DEV_NAK        0x40      // enable interrupt for NAK responded for USB device mode
 #define bUIE_FIFO_OV        0x10      // enable interrupt for FIFO overflow
+#define bUIE_HST_SOF        0x08      // enable interrupt for host SOF timer action for USB host mode
 #define bUIE_SUSPEND        0x04      // enable interrupt for USB suspend or resume event
 #define bUIE_TRANSFER       0x02      // enable interrupt for USB transfer completion
-#define bUIE_BUS_RST        0x01      // enable interrupt for USB bus reset event
+#define bUIE_DETECT         0x01      // enable interrupt for USB device detected event for USB host mode
+#define bUIE_BUS_RST        0x01      // enable interrupt for USB bus reset event for USB device mode
 __sfr   __at (0xE2)         USB_CTRL; // USB base control
+#define bUC_HOST_MODE       0x80      // enable USB host mode: 0=device mode, 1=host mode
 #define bUC_LOW_SPEED       0x40      // enable USB low speed: 0=full speed, 1=low speed
 #define bUC_DEV_PU_EN       0x20      // USB device enable and internal pullup resistance enable
 #define bUC_SYS_CTRL1       0x20      // USB system control high bit
 #define bUC_SYS_CTRL0       0x10      // USB system control low bit
 #define MASK_UC_SYS_CTRL    0x30      // bit mask of USB system control
-// bUC_SYS_CTRL1 & bUC_SYS_CTRL0: USB system control
-//   00: disable USB device and disable internal pullup resistance
-//   01: enable USB device and disable internal pullup resistance, need external pullup resistance
-//   10: enable USB device and enable internal pullup resistance
-//   11: enable USB device and enable internal weak pullup resistance
-#define bUC_INT_BUSY        0x08      // enable automatic responding busy during interrupt flag UIF_TRANSFER valid
+// bUC_HOST_MODE & bUC_SYS_CTRL1 & bUC_SYS_CTRL0: USB system control
+//   0 00: disable USB device and disable internal pullup resistance
+//   0 01: enable USB device and disable internal pullup resistance, need external pullup resistance
+//   0 10: enable USB device and enable internal pullup resistance
+//   0 11: enable USB device and enable internal weak pullup resistance
+//   1 00: enable USB host and normal status
+//   1 01: enable USB host and force DP/DM output SE0 state
+//   1 10: enable USB host and force DP/DM output J state
+//   1 11: enable USB host and force DP/DM output resume or K state
+#define bUC_INT_BUSY        0x08      // enable automatic responding busy for device mode or automatic pause for host mode during interrupt flag UIF_TRANSFER valid
 #define bUC_RESET_SIE       0x04      // force reset USB SIE, need software clear
 #define bUC_CLR_ALL         0x02      // force clear FIFO and count of USB
 #define bUC_DMA_EN          0x01      // DMA enable and DMA interrupt enable for USB
@@ -842,18 +914,43 @@ __sfr   __at (0xE4)         UDEV_CTRL;// USB device physical port control
 #define bUD_LOW_SPEED       0x04      // enable USB physical port low speed: 0=full speed, 1=low speed
 #define bUD_GP_BIT          0x02      // general purpose bit
 #define bUD_PORT_EN         0x01      // enable USB physical port I/O: 0=disable, 1=enable
+#define UHUB0_CTRL          UDEV_CTRL // USB hub0 control
+#define bUH_RECV_DIS        0x40      // disable USB hub receiver: 0=enable hub receiver, 1=disable hub receiver
+#define bUH_DP_PD_DIS       0x20      // disable USB DP or HP pulldown resistance: 0=enable pulldown, 1=disable
+#define bUH_DM_PD_DIS       0x10      // disable USB DM or HM pulldown resistance: 0=enable pulldown, 1=disable
+#define bUH_DIFF_IN         0x08      // ReadOnly: indicate current DP/DM or HP/HM difference input status
+#define bUH_LOW_SPEED       0x04      // enable USB hub low speed: 0=full speed, 1=low speed
+#define bUH_BUS_RESET       0x02      // control USB hub bus reset: 0=normal, 1=force bus reset
+#define bUH_PORT_EN         0x01      // enable USB hub port: 0=disable, 1=enable port, automatic disabled if USB device detached
+__sfr   __at (0xE5)         UHUB1_CTRL; // USB hub1 control
+#define bUH1_DISABLE        0x80      // disable USB hub1 pin: 0=enable hub1 and using HP/HM pin, 1=disable hub1 and releasing HP/HM pin
 __sfr16 __at (0xE7E6)       USB_DMA;  // ReadOnly: current DMA address, little-endian
 __sfr   __at (0xE6)         USB_DMA_AL; // ReadOnly: current DMA address low byte
 __sfr   __at (0xE7)         USB_DMA_AH; // ReadOnly: current DMA address high byte
+#define UH_SETUP            UEP1_CTRL // host aux setup
+#define bUH_PRE_PID_EN      0x80      // USB host PRE PID enable for low speed device via hub
+#define bUH_SOF_EN          0x40      // USB host automatic SOF enable
+#define UH_RX_CTRL          UEP2_CTRL // host receiver endpoint control
+#define bUH_R_TOG           0x80      // expected data toggle flag of host receiving (IN): 0=DATA0, 1=DATA1
+#define bUH_R_AUTO_TOG      0x10      // enable automatic toggle after successful transfer completion: 0=manual toggle, 1=automatic toggle
+#define bUH_R_RES           0x04      // prepared handshake response type for host receiving (IN): 0=ACK (ready), 1=no response, time out to device, for isochronous transactions         
+#define UH_EP_PID           UEP2_T_LEN// host endpoint and token PID, lower 4 bits for endpoint number, upper 4 bits for token PID
+#define MASK_UH_TOKEN       0xF0      // bit mask of token PID for USB host transfer
+#define MASK_UH_ENDP        0x0F      // bit mask of endpoint number for USB host transfer
+#define UH_TX_CTRL          UEP3_CTRL // host transmittal endpoint control
+#define bUH_T_TOG           0x40      // prepared data toggle flag of host transmittal (SETUP/OUT): 0=DATA0, 1=DATA1
+#define bUH_T_AUTO_TOG      0x10      // enable automatic toggle after successful transfer completion: 0=manual toggle, 1=automatic toggle
+#define bUH_T_RES           0x01      // expected handshake response type for host transmittal (SETUP/OUT): 0=ACK (ready), 1=no response, time out from device, for isochronous transactions
+#define UH_TX_LEN           UEP3_T_LEN// host transmittal endpoint transmittal length
 
 /*----- XDATA: xRAM, xBUS, xSFR ------------------------------------------*/
 
-#define XDATA_RAM_SIZE      0x1000    // size of expanded xRAM, xdata SRAM embedded chip
-#define XDATA_XBUS_ADDR     0x4000    // xdata xBUS start address
-#define XDATA_XBUS_CS0      0x4000    // xdata xBUS chip-selection 0#
-#define XDATA_XCS0_SIZE     0x4000    // size of xdata xBUS chip-selection 0#: @0x4000~0x7FFF
-#define XDATA_XBUS_CS1      0x8000    // xdata xBUS chip-selection 1#
-#define XDATA_XCS1_SIZE     0x8000    // size of xdata xBUS chip-selection 1#: @0x8000~0xFFFF
+#define XDATA_RAM_SIZE    0x1800    // size of expanded xRAM, xdata SRAM embedded chip
+#define XDATA_XBUS_ADDR   0x4000    // xdata xBUS start address
+#define XDATA_XBUS_CS0    0x4000    // xdata xBUS chip-selection 0#
+#define XDATA_XCS0_SIZE   0x4000    // size of xdata xBUS chip-selection 0#: @0x4000~0x7FFF
+#define XDATA_XBUS_CS1    0x8000    // xdata xBUS chip-selection 1#
+#define XDATA_XCS1_SIZE   0x8000    // size of xdata xBUS chip-selection 1#: @0x8000~0xFFFF
 
 /*  USB auxiliary Registers on xDATA, xSFR  */
 #define REG_USB_AUX_BASE    0x2440    // USB auxiliary registers base address
@@ -911,6 +1008,32 @@ uint8_pv __at (0x4E)        pUEP3_DMA_H;
 uint8_pv __at (0x4F)        pUEP3_DMA_L;
 uint16_xv __at (0x244E)     UEP3_DMA;
 uint16_pv __at (0x4E)       pUEP3_DMA;  // endpoint 3 buffer start address, must even address, big-endian
+#define UH_EP_MOD           UEP2_3_MOD  // host endpoint mode
+#define pUH_EP_MOD          pUEP2_3_MOD
+#define bUH_EP_TX_EN        0x40      // enable USB host OUT endpoint transmittal
+#define bUH_EP_TBUF_MOD     0x10      // buffer mode of USB host OUT endpoint
+// bUH_EP_TX_EN & bUH_EP_TBUF_MOD: USB host OUT endpoint buffer mode, buffer start address is UH_TX_DMA
+//   0 x:  disable endpoint and disable buffer
+//   1 0:  64 bytes buffer for transmittal (OUT endpoint)
+//   1 1:  dual 64 bytes buffer by toggle bit bUH_T_TOG selection for transmittal (OUT endpoint), total=128bytes
+#define bUH_EP_RX_EN        0x08      // enable USB host IN endpoint receiving
+#define bUH_EP_RBUF_MOD     0x01      // buffer mode of USB host IN endpoint
+// bUH_EP_RX_EN & bUH_EP_RBUF_MOD: USB host IN endpoint buffer mode, buffer start address is UH_RX_DMA
+//   0 x:  disable endpoint and disable buffer
+//   1 0:  64 bytes buffer for receiving (IN endpoint)
+//   1 1:  dual 64 bytes buffer by toggle bit bUH_R_TOG selection for receiving (IN endpoint), total=128bytes
+#define UH_RX_DMA           UEP2_DMA    // host rx endpoint buffer start address, big-endian
+#define pUH_RX_DMA          pUEP2_DMA
+#define UH_RX_DMA_H         UEP2_DMA_H  // host rx endpoint buffer start address high byte
+#define pUH_RX_DMA_H        pUEP2_DMA_H
+#define UH_RX_DMA_L         UEP2_DMA_L  // host rx endpoint buffer start address low byte
+#define pUH_RX_DMA_L        pUEP2_DMA_L
+#define UH_TX_DMA           UEP3_DMA    // host tx endpoint buffer start address, big-endian
+#define pUH_TX_DMA          pUEP3_DMA
+#define UH_TX_DMA_H         UEP3_DMA_H  // host tx endpoint buffer start address high byte
+#define pUH_TX_DMA_H        pUEP3_DMA_H
+#define UH_TX_DMA_L         UEP3_DMA_L  // host tx endpoint buffer start address low byte
+#define pUH_TX_DMA_L        pUEP3_DMA_L
 
 /*  LED Registers on xDATA, xSFR  */
 #define REG_LED_BASE        0x2880      // LED registers base address
@@ -958,7 +1081,7 @@ uint16_xv __at (0x2888)     LED_DMA_X;   // aux buffer DMA address, must even ad
 uint16_pv __at (0x88)       pLED_DMA_X;
 
 /*----- Reference Information --------------------------------------------*/
-#define ID_CH558            0x58      // chip ID
+#define ID_CH559            0x59      // chip ID
 
 /* Interrupt routine address and interrupt number */
 #define INT_ADDR_INT0       0x0003    // interrupt vector address for INT0 or LED
@@ -972,6 +1095,7 @@ uint16_pv __at (0x88)       pLED_DMA_X;
 #define INT_ADDR_USB        0x0043    // interrupt vector address for USB
 #define INT_ADDR_ADC        0x004B    // interrupt vector address for ADC
 #define INT_ADDR_UART1      0x0053    // interrupt vector address for UART1
+#define INT_ADDR_PWM1       0x005B    // interrupt vector address for PWM1
 #define INT_ADDR_GPIO       0x0063    // interrupt vector address for GPIO
 #define INT_ADDR_WDOG       0x006B    // interrupt vector address for watch-dog timer
 #define INT_NO_INT0         0         // interrupt number for INT0 or LED
@@ -985,11 +1109,12 @@ uint16_pv __at (0x88)       pLED_DMA_X;
 #define INT_NO_USB          8         // interrupt number for USB
 #define INT_NO_ADC          9         // interrupt number for ADC
 #define INT_NO_UART1        10        // interrupt number for UART1
+#define INT_NO_PWM1         11        // interrupt number for PWM1
 #define INT_NO_GPIO         12        // interrupt number for GPIO
 #define INT_NO_WDOG         13        // interrupt number for watch-dog timer
 
 /* Special Program Space */
-#define DATA_FLASH_ADDR     0xE000    // start address of Data-Flash
+#define DATA_FLASH_ADDR     0xF000    // start address of Data-Flash
 #define BOOT_LOAD_ADDR      0xF400    // start address of boot loader program
 #define ROM_CFG_ADDR        0xFFFE    // chip configuration information address
 
@@ -1157,6 +1282,9 @@ ASM example:
 #define USB_ENDP_TYPE_INTER     0x03
 #endif
 
+#ifndef USB_DEVICE_ADDR
+#define	USB_DEVICE_ADDR			0x02	/* 默认的USB设备地址 */
+#endif
 #ifndef DEFAULT_ENDP0_SIZE
 #define DEFAULT_ENDP0_SIZE      8       /* default maximum packet size for endpoint 0 */
 #endif
@@ -1179,77 +1307,77 @@ ASM example:
 #endif
 
 typedef struct _USB_SETUP_REQ {
-    uint8_t bRequestType;
-    uint8_t bRequest;
-    uint8_t wValueL;
-    uint8_t wValueH;
-    uint8_t wIndexL;
-    uint8_t wIndexH;
-    uint8_t wLengthL;
-    uint8_t wLengthH;
+     uint8_t bRequestType;
+     uint8_t bRequest;
+     uint8_t wValueL;
+     uint8_t wValueH;
+     uint8_t wIndexL;
+     uint8_t wIndexH;
+     uint8_t wLengthL;
+     uint8_t wLengthH;
 } USB_SETUP_REQ, *PUSB_SETUP_REQ;
 
 typedef USB_SETUP_REQ __xdata *PXUSB_SETUP_REQ;
 
 typedef struct _USB_DEVICE_DESCR {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bcdUSBL;
-    uint8_t bcdUSBH;
-    uint8_t bDeviceClass;
-    uint8_t bDeviceSubClass;
-    uint8_t bDeviceProtocol;
-    uint8_t bMaxPacketSize0;
-    uint8_t idVendorL;
-    uint8_t idVendorH;
-    uint8_t idProductL;
-    uint8_t idProductH;
-    uint8_t bcdDeviceL;
-    uint8_t bcdDeviceH;
-    uint8_t iManufacturer;
-    uint8_t iProduct;
-    uint8_t iSerialNumber;
-    uint8_t bNumConfigurations;
+     uint8_t bLength;
+     uint8_t bDescriptorType;
+     uint8_t bcdUSBL;
+     uint8_t bcdUSBH;
+     uint8_t bDeviceClass;
+     uint8_t bDeviceSubClass;
+     uint8_t bDeviceProtocol;
+     uint8_t bMaxPacketSize0;
+     uint8_t idVendorL;
+     uint8_t idVendorH;
+     uint8_t idProductL;
+     uint8_t idProductH;
+     uint8_t bcdDeviceL;
+     uint8_t bcdDeviceH;
+     uint8_t iManufacturer;
+     uint8_t iProduct;
+     uint8_t iSerialNumber;
+     uint8_t bNumConfigurations;
 } USB_DEV_DESCR, *PUSB_DEV_DESCR;
 
 typedef USB_DEV_DESCR __xdata *PXUSB_DEV_DESCR;
 
 typedef struct _USB_CONFIG_DESCR {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t wTotalLengthL;
-    uint8_t wTotalLengthH;
-    uint8_t bNumInterfaces;
-    uint8_t bConfigurationValue;
-    uint8_t iConfiguration;
-    uint8_t bmAttributes;
-    uint8_t MaxPower;
+     uint8_t bLength;
+     uint8_t bDescriptorType;
+     uint8_t wTotalLengthL;
+     uint8_t wTotalLengthH;
+     uint8_t bNumInterfaces;
+     uint8_t bConfigurationValue;
+     uint8_t iConfiguration;
+     uint8_t bmAttributes;
+     uint8_t MaxPower;
 } USB_CFG_DESCR, *PUSB_CFG_DESCR;
 
 typedef USB_CFG_DESCR __xdata *PXUSB_CFG_DESCR;
 
 typedef struct _USB_INTERF_DESCR {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bInterfaceNumber;
-    uint8_t bAlternateSetting;
-    uint8_t bNumEndpoints;
-    uint8_t bInterfaceClass;
-    uint8_t bInterfaceSubClass;
-    uint8_t bInterfaceProtocol;
-    uint8_t iInterface;
+     uint8_t bLength;
+     uint8_t bDescriptorType;
+     uint8_t bInterfaceNumber;
+     uint8_t bAlternateSetting;
+     uint8_t bNumEndpoints;
+     uint8_t bInterfaceClass;
+     uint8_t bInterfaceSubClass;
+     uint8_t bInterfaceProtocol;
+     uint8_t iInterface;
 } USB_ITF_DESCR, *PUSB_ITF_DESCR;
 
 typedef USB_ITF_DESCR __xdata *PXUSB_ITF_DESCR;
 
 typedef struct _USB_ENDPOINT_DESCR {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bEndpointAddress;
-    uint8_t bmAttributes;
-    uint8_t wMaxPacketSizeL;
-    uint8_t wMaxPacketSizeH;
-    uint8_t bInterval;
+     uint8_t bLength;
+     uint8_t bDescriptorType;
+     uint8_t bEndpointAddress;
+     uint8_t bmAttributes;
+     uint8_t wMaxPacketSizeL;
+     uint8_t wMaxPacketSizeH;
+     uint8_t bInterval;
 } USB_ENDP_DESCR, *PUSB_ENDP_DESCR;
 
 typedef USB_ENDP_DESCR __xdata *PXUSB_ENDP_DESCR;
@@ -1263,68 +1391,68 @@ typedef struct _USB_CONFIG_DESCR_LONG {
 typedef USB_CFG_DESCR_LONG __xdata *PXUSB_CFG_DESCR_LONG;
 
 typedef struct _USB_HUB_DESCR {
-    uint8_t bDescLength;
-    uint8_t bDescriptorType;
-    uint8_t bNbrPorts;
-    uint8_t wHubCharacteristicsL;
-    uint8_t wHubCharacteristicsH;
-    uint8_t bPwrOn2PwrGood;
-    uint8_t bHubContrCurrent;
-    uint8_t DeviceRemovable;
-    uint8_t PortPwrCtrlMask;
+     uint8_t bDescLength;
+     uint8_t bDescriptorType;
+     uint8_t bNbrPorts;
+     uint8_t wHubCharacteristicsL;
+     uint8_t wHubCharacteristicsH;
+     uint8_t bPwrOn2PwrGood;
+     uint8_t bHubContrCurrent;
+     uint8_t DeviceRemovable;
+     uint8_t PortPwrCtrlMask;
 } USB_HUB_DESCR, *PUSB_HUB_DESCR;
 
 typedef USB_HUB_DESCR __xdata *PXUSB_HUB_DESCR;
 
 typedef struct _USB_HID_DESCR {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bcdHIDL;
-    uint8_t bcdHIDH;
-    uint8_t bCountryCode;
-    uint8_t bNumDescriptors;
-    uint8_t bDescriptorTypeX;
-    uint8_t wDescriptorLengthL;
-    uint8_t wDescriptorLengthH;
+     uint8_t bLength;
+     uint8_t bDescriptorType;
+     uint8_t bcdHIDL;
+     uint8_t bcdHIDH;
+     uint8_t bCountryCode;
+     uint8_t bNumDescriptors;
+     uint8_t bDescriptorTypeX;
+     uint8_t wDescriptorLengthL;
+     uint8_t wDescriptorLengthH;
 } USB_HID_DESCR, *PUSB_HID_DESCR;
 
 typedef USB_HID_DESCR __xdata *PXUSB_HID_DESCR;
 
 typedef struct _UDISK_BOC_CBW {         /* command of BulkOnly USB-FlashDisk */
-    uint8_t mCBW_Sig0;
-    uint8_t mCBW_Sig1;
-    uint8_t mCBW_Sig2;
-    uint8_t mCBW_Sig3;
-    uint8_t mCBW_Tag0;
-    uint8_t mCBW_Tag1;
-    uint8_t mCBW_Tag2;
-    uint8_t mCBW_Tag3;
-    uint8_t mCBW_DataLen0;
-    uint8_t mCBW_DataLen1;
-    uint8_t mCBW_DataLen2;
-    uint8_t mCBW_DataLen3;                /* uppest byte of data length, always is 0 */
-    uint8_t mCBW_Flag;                    /* transfer direction and etc. */
-    uint8_t mCBW_LUN;
-    uint8_t mCBW_CB_Len;                  /* length of command block */
-    uint8_t mCBW_CB_Buf[16];              /* command block buffer */
+     uint8_t mCBW_Sig0;
+     uint8_t mCBW_Sig1;
+     uint8_t mCBW_Sig2;
+     uint8_t mCBW_Sig3;
+     uint8_t mCBW_Tag0;
+     uint8_t mCBW_Tag1;
+     uint8_t mCBW_Tag2;
+     uint8_t mCBW_Tag3;
+     uint8_t mCBW_DataLen0;
+     uint8_t mCBW_DataLen1;
+     uint8_t mCBW_DataLen2;
+     uint8_t mCBW_DataLen3;                /* uppest byte of data length, always is 0 */
+     uint8_t mCBW_Flag;                    /* transfer direction and etc. */
+     uint8_t mCBW_LUN;
+     uint8_t mCBW_CB_Len;                  /* length of command block */
+     uint8_t mCBW_CB_Buf[16];              /* command block buffer */
 } UDISK_BOC_CBW, *PUDISK_BOC_CBW;
 
 typedef UDISK_BOC_CBW __xdata *PXUDISK_BOC_CBW;
 
 typedef struct _UDISK_BOC_CSW {         /* status of BulkOnly USB-FlashDisk */
-    uint8_t mCSW_Sig0;
-    uint8_t mCSW_Sig1;
-    uint8_t mCSW_Sig2;
-    uint8_t mCSW_Sig3;
-    uint8_t mCSW_Tag0;
-    uint8_t mCSW_Tag1;
-    uint8_t mCSW_Tag2;
-    uint8_t mCSW_Tag3;
-    uint8_t mCSW_Residue0;                /* return: remainder bytes */
-    uint8_t mCSW_Residue1;
-    uint8_t mCSW_Residue2;
-    uint8_t mCSW_Residue3;                /* uppest byte of remainder length, always is 0 */
-    uint8_t mCSW_Status;                  /* return: result status */
+     uint8_t mCSW_Sig0;
+     uint8_t mCSW_Sig1;
+     uint8_t mCSW_Sig2;
+     uint8_t mCSW_Sig3;
+     uint8_t mCSW_Tag0;
+     uint8_t mCSW_Tag1;
+     uint8_t mCSW_Tag2;
+     uint8_t mCSW_Tag3;
+     uint8_t mCSW_Residue0;                /* return: remainder bytes */
+     uint8_t mCSW_Residue1;
+     uint8_t mCSW_Residue2;
+     uint8_t mCSW_Residue3;                /* uppest byte of remainder length, always is 0 */
+     uint8_t mCSW_Status;                  /* return: result status */
 } UDISK_BOC_CSW, *PUDISK_BOC_CSW;
 
 typedef __xdata UDISK_BOC_CSW *PXUDISK_BOC_CSW;

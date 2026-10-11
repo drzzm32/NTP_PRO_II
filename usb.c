@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ch558.h"
+#include "ch559.h"
 #include "sys.h"
 #include "pin.h"
 
@@ -12,13 +12,13 @@
 const uint8_c usbDevDesc[] = {
     0x12,               // 描述符长度(18字节)
     0x01,               // 描述符类型
-    0x00, 0x02,         //本设备所用USB版本(2.0)
+    0x00, 0x02,         // 本设备所用USB版本(2.0)
     0x00,               // 类代码
     0x00,               // 子类代码
     0x00,               // 设备所用协议
     THIS_ENDP0_SIZE,    // 端点0最大包长
     0x32, 0x32,         // 厂商ID
-    0x5B, 0x00,         // 产品ID, NSDN-PCB 0091
+    0x60, 0x00,         // 产品ID, NSDN-PCB 0096
     0x00, 0x01,         // 设备版本号 (1.0)
     0x01,               // 描述厂商信息的字符串描述符的索引值
     0x02,               // 描述产品信息的字串描述符的索引值
@@ -54,7 +54,7 @@ const uint8_c usbCfgDesc[] = {
     0x00,        //   bCountryCode
     0x01,        //   bNumDescriptors
     0x22,        //   bDescriptorType[0] (HID)
-    0x78, 0x00,  //   wDescriptorLength[0] 120
+    0x6B, 0x00,  //   wDescriptorLength[0] 107
 
     0x07,        //   bLength
     0x05,        //   bDescriptorType (Endpoint)
@@ -138,35 +138,28 @@ const uint8_c KeyRepDesc[] = {
     0x95, 0x05,        //   Report Count (5)
     0x75, 0x01,        //   Report Size (1)
     0x91, 0x01,        //   Output (Const,Array,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
-    
     0xC0,              // End Collection
-    0x05, 0x0C,        // Usage Page (Consumer)
-    0x09, 0x01,        // Usage (Consumer Control)
+
+    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x04,        // Usage (Joystick)
     0xA1, 0x01,        // Collection (Application)
     0x85, 0x02,        //   Report ID (2)
-    0x05, 0x0C,        //   Usage Page (Consumer)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x26, 0xFF, 0x7F,  //   Logical Maximum (32767)
-    0x19, 0x00,        //   Usage Minimum (0x00)
-    0x2A, 0xFF, 0x02,  //   Usage Maximum (0x2FF)
-    0x75, 0x10,        //   Report Size (16)
-    0x95, 0x01,        //   Report Count (1)
-    0x81, 0x00,        //   Input (Data,Array,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0xC0,              // End Collection
-    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
-    0x09, 0x05,        // Usage (Game Pad)
-    0xA1, 0x01,        // Collection (Application)
-    0x85, 0x03,        //   Report ID (3)
     0x05, 0x09,        //   Usage Page (Button)
     0x19, 0x01,        //   Usage Minimum (0x01)
-    0x29, 0x16,        //   Usage Maximum (0x16)
+    0x29, 0x08,        //   Usage Maximum (0x08)
     0x15, 0x00,        //   Logical Minimum (0)
     0x25, 0x01,        //   Logical Maximum (1)
     0x75, 0x01,        //   Report Size (1)
-    0x95, 0x16,        //   Report Count (22)
+    0x95, 0x08,        //   Report Count (8)
     0x81, 0x02,        //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+    0x05, 0x01,        //   Usage Page (Generic Desktop Ctrls)
+    0x16, 0x01, 0xFC,  //   Logical Minimum (-1023)
+    0x26, 0xFF, 0x03,  //   Logical Maximum (1023)
+    0x09, 0x30,        //   Usage (X)
+    0x09, 0x31,        //   Usage (Y)
+    0x75, 0x10,        //   Report Size (16)
     0x95, 0x02,        //   Report Count (2)
-    0x81, 0x03,        //   Input (Const,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+    0x81, 0x02,        //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
     0xC0,              // End Collection
 };
 const uint8_c CustomRepDesc[] = {
@@ -192,10 +185,10 @@ const uint8_c CustomRepDesc[] = {
 
 const uint8_c usbLangDesc[] = { 0x04, 0x03, 0x04, 0x08 };
 const uint8_c usbManuDesc[] = { 0x0A, 0x03, 'N', 0, 'S', 0, 'D', 0, 'N', 0 };
-const uint8_c usbProdDesc[] = { 0x10, 0x03, 'N', 0,'T', 0,'P', 0, ' ', 0, 'P', 0,'R',0,'O', 0 };
+const uint8_c usbProdDesc[] = { 0x16, 0x03, 'N', 0,'T', 0,'P', 0, ' ', 0, 'P', 0, 'R', 0, 'O', 0, ' ', 0, 'I', 0, 'I', 0 };
 const uint8_c usbSerialDesc[] = { 0x0A, 0x03, '0', 0, '0', 0, '0', 0, '0', 0 };
 const uint8_c usbCfgStrDesc[] = { 0x12, 0x03, 'N', 0, 'S', 0, 'D', 0, 'N', 0, '-', 0, 'U', 0, 'S', 0, 'B', 0 };
-const uint8_c usbKeyStrDesc[] = { 0x18, 0x03, 'N', 0, 'S', 0, 'D', 0, 'N', 0, '-', 0, 'K', 0, 'e', 0, 'y', 0, 'b', 0, 'r', 0, 'd', 0 };
+const uint8_c usbKeyStrDesc[] = { 0x18, 0x03, 'N', 0, 'S', 0, 'D', 0, 'N', 0, '-', 0, 'N', 0, 'T', 0, 'P', 0, ' ', 0, 'I', 0, 'I', 0 };
 const uint8_c usbCusStrDesc[] = { 0x18, 0x03, 'N', 0, 'S', 0, 'D', 0, 'N', 0, '-', 0, 'C', 0, 'u', 0, 's', 0, 't', 0, 'o', 0, 'm', 0 };
 // START at 0x0000
 uint8_x __at (0x0000) Ep0Buffer[THIS_ENDP0_SIZE];                                           //端点0 OUT&IN缓冲区，必须是偶地址
@@ -561,8 +554,7 @@ void pushKeyData() {
     uint8_t len = 0;
     uint8_t type = HIDKey[0];
     if (type == 0x01) len = sizeof(HIDKey);
-    else if (type == 0x02) len = 3;
-    else if (type == 0x03) len = 4;
+    else if (type == 0x02) len = 6;
     if (type > 0)
         Enp1IntIn(HIDKey, len);
 }

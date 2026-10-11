@@ -1,19 +1,24 @@
 #include "sys.h"
 
-#include "ch558.h"
+#include "ch559.h"
 #include "pin.h"
 
 void sysPinConfig() {
-    // KEY_2 KEY_3
-    P3_PU &= ~(0x14);
-    // SCL SDA PRT_1
-    P2_DIR |= 0xE0;
-    P2_PU &= ~(0xC0);
-    // PRT_2
-    P1_DIR |= 0x04;
-    // MOT_F MOT_R
+    // FR RE LED
+    P4_DIR |= 0xA8;
+
+    // SCL SDA
+    P2_DIR |= 0x03;
+    P2_PU &= ~(0x03);
+
+    // KEYs
     PORT_CFG &= ~(bP0_OC);
-    P0_DIR |= 0x0C;
+    P0_DIR = 0x00;
+    P0_PU = 0x00;
+
+    // PORTs
+    PORT_CFG &= ~(bP3_OC);
+    P3_DIR = 0xFF;
 }
 
 void sysClockConfig() {
@@ -253,7 +258,7 @@ uint16_t uart0BlockRecv(uint8_t* ptr, uint16_t siz) {
 }
 
 void adcInit() {
-    P1_IE = 0x0F; // P14 P15 P16 P17
+    P1_IE = 0x00; // P1x
     ADC_SETUP |= bADC_POWER_EN;
     ADC_CK_SE = FREQ_SYS / 8000000;
     ADC_CTRL &= ~MASK_ADC_CYCLE;
@@ -271,7 +276,38 @@ uint16_t adcGet(uint8_t channel) {
     ADC_CTRL &= ~bADC_SAMPLE;
     while ((ADC_STAT & bADC_IF_ACT) == 0);
     ADC_STAT |= bADC_IF_ACT;
+    delay_us(10);
+    ADC_CTRL |= bADC_SAMPLE;
+    delay_us(50);
+    ADC_CTRL &= ~bADC_SAMPLE;
+    while ((ADC_STAT & bADC_IF_ACT) == 0);
+    ADC_STAT |= bADC_IF_ACT;
     return ADC_FIFO;
+}
+
+void __pwm1_interrupt() __interrupt (INT_NO_PWM1) __using (2) {
+    if (PWM_CTRL & bPWM_IF_END)
+        PWM_CTRL |= bPWM_IF_END;
+}
+
+void pwmInit() {
+    PWM_CK_SE = 2;
+    PWM_CYCLE = 255;
+    PIN_FUNC |= bPWM1_PIN_X;
+    PWM_CTRL &= ~bPWM_CLR_ALL;
+    PWM_CTRL &= ~bPWM_MOD_MFM;
+    PWM_CTRL |=	bPWM_IE_END;
+    PWM_CTRL |=	(bPWM_OUT_EN | bPWM2_OUT_EN);
+    PWM_CTRL |= bPWM_IF_END;
+    PWM_CTRL &= ~(bPWM_POLAR | bPWM2_POLAR);
+    IE_PWM1 = 1;
+}
+
+void pwmSet(uint8_t ch, uint8_t duty) {
+    if (ch == 1)
+        PWM_DATA = duty;
+    else if (ch == 2)
+        PWM_DATA2 = duty;
 }
 
 #ifdef LED_ADR

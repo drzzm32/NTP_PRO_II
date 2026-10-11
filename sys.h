@@ -24,6 +24,9 @@ uint16_t uart0BlockRecv(uint8_t* ptr, uint16_t siz);
 void adcInit();
 uint16_t adcGet(uint8_t channel);
 
+void pwmInit();
+void pwmSet(uint8_t ch, uint8_t duty);
+
 #ifdef LED_ADR
 void rgbSet(uint8_t index, uint32_t value);
 void rgbSet3(uint8_t index, uint8_t r, uint8_t g, uint8_t b);

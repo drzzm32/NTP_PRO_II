@@ -3,27 +3,13 @@
 
 #include <stdint.h>
 
+/* 厂商自定义接口(接口1)一次传输的数据字节数。
+   CustomRepDesc 里的 Report Count 和 HIDInput/HIDOutput 的尺寸都由它决定。 */
 #define HID_BUF_SIZE 42
 
+/* 初始化 CH559 的 USB 设备控制器并接入总线。
+   这是本头文件唯一对外的东西：业务层要用的手柄上报接口都在 joy.h 里
+   （joyReady/joySend/joySendIfChanged/joyInvalidate/joyPrint/... 由 usb.c 实现）。 */
 void usbDevInit();
-
-void setKeycode(uint8_t i, uint8_t key);
-void releaseAllKey();
-void pushKeyData();
-uint8_t* fetchKeyData();
-
-#define LED_NUMS    0x01
-#define LED_CAPS    0x02
-#define LED_SCOL    0x04
-uint8_t fetchLED();
-
-uint8_t getHIDData(uint8_t index);
-void setHIDData(uint8_t index, uint8_t data);
-__bit hasHIDData();
-void requestHIDData();
-void pushHIDData();
-uint8_t* fetchHIDData();
-
-void hidPrint(const char* str);
 
 #endif

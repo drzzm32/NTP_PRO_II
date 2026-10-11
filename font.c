@@ -393,7 +393,15 @@ const static uint8_t font_8x16[] = {
     0x0F,0x08,0x0F,0x00,0x00,0x00,0x00,0x00,
 };
 
+/* 位图：数组开头 4 字节是头部，由 ImageToSSD1322 取模工具生成。
+     字节 0 : 尺寸描述符 —— 高 4 位 = 宽的字节数(2)，低 4 位 = 高的字节数(1)
+     字节 1+: 宽，小端
+     之后   : 高，小端
+   这里就是 0x21 = 宽 2 字节 + 高 1 字节 → 64x48。
+   头部之后是纯像素数据：行正序、每行 宽/2 = 32 字节，
+   半字节 = 15 - (灰度 >> 4)，高 4 位是左边那个像素。 */
 const static uint8_t logo[] = {
+    0x21,0x40,0x00,0x30,   // 宽 64、高 48（0x21 = 宽 2 字节 + 高 1 字节）
     0x09,0xB5,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x4B,0xA1,0x00,
     0x00,0x09,0xB6,0x00,0x05,0xCD,0xDD,0xDD,0xDD,0xDD,0xDD,0xDC,0x80,0x00,0x3B,0xB1,
     0xBF,0xFF,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0xFF,0xFB,0x00,
@@ -492,6 +500,11 @@ const static uint8_t logo[] = {
     0x00,0x00,0x00,0x00,0x00,0x07,0xEF,0xFF,0xFF,0xFF,0xFF,0xB0,0x00,0x00,0x00,0x00,
 };
 
+/* 取字体/位图的指针。
+   ⚠️ id = 0xFF 返回的是 **4 位灰度位图**，数组开头带 FONT_BMP_HEADER 字节的宽高
+   头部、而且是"每字节两个像素"的灰度格式 —— 它只能走 oledBmpC/oledBmp 那条路
+   （记得传 font + FONT_BMP_HEADER）。**别把它当点阵字体喂给 oledChar/oledString**：
+   那两个按 c * f_w * f_h / 8 去索引，用 64x48 算会直接越过数组末尾。 */
 const uint8_t* fontGet(uint8_t id) {
     switch (id) {
         case 0x00: return font_8x8;
@@ -501,12 +514,32 @@ const uint8_t* fontGet(uint8_t id) {
     }
 }
 
-void fontSize(const uint8_t* font, uint8_t* w, uint8_t* h) {
+/* 取字体/位图的宽高。w/h 是 uint16_t —— 位图宽度最大等于屏宽 256，
+   uint8_t 装不下（见 font.h 的说明）。
+
+   前两种是 1 位点阵字库，尺寸固定；logo 是 4 位灰度位图，尺寸从数组开头的
+   头部读，不再写死在这里 —— 换一张图只要用 ImageToSSD1322 重新取模，
+   这个函数一个字都不用改。 */
+void fontSize(const uint8_t* font, uint16_t* w, uint16_t* h) {
     if (font == font_8x8) {
         *w = 8; *h = 8;
     } else if (font == font_8x16) {
         *w = 8; *h = 16;
     } else if (font == logo) {
-        *w = 64; *h = 48;
+        /* 头部 4 字节：font[0] 是尺寸描述符（高 4 位 = 宽的字节数，
+           低 4 位 = 高的字节数），后面依次是宽、高，都是小端。
+           取模工具当前写 0x21 = 宽 2 字节 + 高 1 字节。
+           将来换高也超过 255 的屏，工具写 0x22，这里加个 case 即可。 */
+        switch (font[0]) {
+            case 0x21:
+                *w = (uint16_t) font[1] | ((uint16_t) font[2] << 8);
+                *h = font[3];
+                break;
+            default:                    /* 认不出的格式：交回调用方判断 */
+                *w = 0; *h = 0;
+                break;
+        }
+    } else {
+        *w = 0; *h = 0;
     }
 }

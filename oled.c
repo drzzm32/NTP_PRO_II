@@ -10,7 +10,10 @@
 static uint16_t oled_buffer[FONT_MAX_WIDTH * 8 / 4];
 
 const uint8_t* font;
-uint8_t f_w, f_h, pos, off;
+/* f_w / f_h 是 uint16_t：位图宽度最大等于屏宽 256，uint8_t 装不下。
+   pos / off 只在文字那条路上用（宽 ≤ FONT_MAX_WIDTH），保持 uint8_t。 */
+uint16_t f_w, f_h;
+uint8_t pos, off;
 uint16_t f;
 
 uint8_t xs, ys, xe, ye;
@@ -142,7 +145,9 @@ void oledLogo() {
     fontSize(font, &f_w, &f_h);
 
     oledClear(0x0);
-    oledBmpC(OLED_WIDTH / 2, OLED_HEIGHT / 2, f_w, f_h, font);
+    /* 位图数组开头是 FONT_BMP_HEADER 字节的宽高头部，像素数据在后面 ——
+       这里必须跳过它，否则会把 0x21,0x40,0x00,0x30 当成头 4 个像素画出去。 */
+    oledBmpC(OLED_WIDTH / 2, OLED_HEIGHT / 2, f_w, f_h, font + FONT_BMP_HEADER);
 }
 
 void oledBmp(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* bmp) {

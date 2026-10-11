@@ -13,7 +13,7 @@ void sysPinConfig() {
 
     // KEYs
     PORT_CFG &= ~(bP0_OC);
-    P0_DIR = 0x00;
+    P0_DIR = 0x3F; // P00-P05
     P0_PU = 0x00;
 
     // PORTs
@@ -258,7 +258,7 @@ uint16_t uart0BlockRecv(uint8_t* ptr, uint16_t siz) {
 }
 
 void adcInit() {
-    P1_IE = 0x00; // P1x
+    P1_IE &= ~(0x1F); // P10~P14
     ADC_SETUP |= bADC_POWER_EN;
     ADC_CK_SE = FREQ_SYS / 8000000;
     ADC_CTRL &= ~MASK_ADC_CYCLE;
@@ -268,7 +268,7 @@ void adcInit() {
 }
 
 uint16_t adcGet(uint8_t channel) {
-    channel &= 0x7;
+    channel %= 5;
     ADC_CHANN = 1 << channel;
     delay_us(10);
     ADC_CTRL |= bADC_SAMPLE;
@@ -310,104 +310,20 @@ void pwmSet(uint8_t ch, uint8_t duty) {
         PWM_DATA2 = duty;
 }
 
-#ifdef LED_ADR
+void spi0Init(uint8_t div) {
+    PORT_CFG &= ~bP1_OC;
+    P1_DIR |= (bSCK | bMOSI | bMISO);
+    // 使能 SCK MOSI 为输出，MISO 用作普通输出端口
 
-__sbit __at (LED_ADR) LED_OUT;
-#define RGB_CNT 78
-static uint8_t rgbData[RGB_CNT][3];
-
-void __ws_rst() {
-    LED_OUT = 0;
-    delay_us(500);
-    LED_OUT = 1;
+    SPI0_SETUP &= ~(bS0_MODE_SLV | bS0_BIT_ORDER);
+    SPI0_CTRL |= bS0_MOSI_OE | bS0_SCK_OE;
+    SPI0_CTRL &= ~(bS0_MST_CLK | bS0_2_WIRE);
+    SPI0_CTRL &= ~(bS0_DATA_DIR);	
+    SPI0_CK_SE = div;
+    SPI0_CTRL &= ~bS0_CLR_ALL;
 }
 
-void __ws_send(uint8_t c) {
-    c;
-    __asm
-    mov r2, #0x08
-    mov a, dpl
-head:
-    rlc a
-    jnc zero
-    setb _LED_OUT
-    mov r3, #0x0C
-nzhead1:
-    djnz r3, nzhead1
-    clr _LED_OUT
-    mov r3, #0x09
-nzhead2:
-    djnz r3, nzhead2
-    djnz r2, head
-    ret
-zero:
-    setb _LED_OUT
-    mov r3, #0x04
-zhead1:
-    djnz r3, zhead1
-    clr _LED_OUT
-    mov r3, #0x09
-zhead2:
-    djnz r3, zhead2
-    djnz r2, head
-    ret
-    __endasm;
+void spi0Send(uint8_t data) {
+    SPI0_DATA = data;
+    while (S0_FREE == 0);
 }
-
-void rgbSet(uint8_t index, uint32_t value) {
-    uint8_t a = (value >> 24) & 0xFF;
-    uint8_t r = (value >> 16) & 0xFF;
-    uint8_t g = (value >> 8) & 0xFF;
-    uint8_t b = value & 0xFF;
-
-    r = (uint16_t) r * (uint16_t) a / 255;
-    g = (uint16_t) g * (uint16_t) a / 255;
-    b = (uint16_t) b * (uint16_t) a / 255;
-
-    rgbSet3(index, r, g, b);
-}
-
-void rgbSet3(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
-    rgbData[index % RGB_CNT][0] = r;
-    rgbData[index % RGB_CNT][1] = g;
-    rgbData[index % RGB_CNT][2] = b;
-}
-
-void rgbPush() {
-    E_DIS = 1;
-    __ws_rst();
-    uint8_t i;
-    for (i = 0; i < RGB_CNT; i++) {
-        __ws_send(rgbData[i][1]); // G
-        __ws_send(rgbData[i][0]); // R
-        __ws_send(rgbData[i][2]); // B
-    }
-    __ws_rst();
-    E_DIS = 0;
-}
-
-#define abs__(v) ((v) < 0 ? -(v) : (v))
-uint32_t hsv2RGB(uint16_t h, uint8_t s, uint8_t v) {
-    h = h % 360;
-    uint8_t c = (uint16_t) v * (uint16_t) s / 255;
-    uint8_t x = (uint16_t) c * (255 - abs__((int16_t) (h * 255 / 60) % 511 - 255)) / 255;
-    uint8_t m = v - c;
-    uint8_t rt, gt, bt;
-    if (h < 60) {
-        rt = c; gt = x; bt = 0;
-    } else if (h >= 60 && h < 120) {
-        rt = x; gt = c; bt = 0;
-    } else if (h >= 120 && h < 180) {
-        rt = 0; gt = c; bt = x;
-    } else if (h >= 180 && h < 240) {
-        rt = 0; gt = x; bt = c;
-    } else if (h >= 240 && h < 300) {
-        rt = x; gt = 0; bt = c;
-    } else {
-        rt = c; gt = 0; bt = x;
-    }
-    
-    return (uint32_t) (rt + m) << 16 | (uint32_t) (gt + m) << 8 | (bt + m);
-}
-
-#endif

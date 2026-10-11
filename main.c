@@ -7,6 +7,7 @@ char buff[32];
 #include "pin.h"
 #include "usb.h"
 #include "dac.h"
+#include "oled.h"
 
 void __usb_interrupt() __interrupt (INT_NO_USB) __using (1);
 extern __bit USB_OK;
@@ -21,6 +22,10 @@ void main() {
     sysClockConfig();
     delay(10);
 
+    oledInit();
+    oledLogo();
+    delay(1000);
+
     PWM_MODE = (KEY_1 == 0);
     if (PWM_MODE)
         pwmInit();
@@ -30,6 +35,9 @@ void main() {
     usbDevInit();
     EA = 1;
 
+    oledClear(0x0);
+    oledStringC(128, 32, 1, 0x0F, "NTP PRO II");
+    
     delay(50);
     releaseAllKey();
     pushKeyData();

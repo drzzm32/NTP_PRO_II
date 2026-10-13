@@ -4,19 +4,20 @@
 #include "pin.h"
 
 void sysPinConfig() {
-    // FR RE LED
-    P4_DIR |= 0xA8;
+    // FR RE（P4.3/P4.5：电机 H 桥，或交给 PWM1/PWM2）
+    // P4.7 原来那颗 LED 在 R2 上不用了，故意不设方向 —— 保持输入态就不会亮
+    P4_DIR |= 0x28;
 
     // SCL SDA
     P2_DIR |= 0x03;
     P2_PU &= ~(0x03);
 
-    // KEYs
+    // KEYs K0~K5（P00~P05），读入 0 为按下
     PORT_CFG &= ~(bP0_OC);
     P0_DIR = 0x3F; // P00-P05
     P0_PU = 0x00;
 
-    // PORTs
+    // 指示灯 P3.0~P3.4（置 1 亮），P3.5~P3.7 预留
     PORT_CFG &= ~(bP3_OC);
     P3_DIR = 0xFF;
 }
@@ -268,6 +269,8 @@ void adcInit() {
 }
 
 uint16_t adcGet(uint8_t channel) {
+    /* AIN0~AIN7 就是 P1.0~P1.7，但 P1.5/P1.6/P1.7 被 OLED 占了
+       （MOSI / RST / SCK），所以只有前 5 个通道能用。 */
     channel %= 5;
     ADC_CHANN = 1 << channel;
     delay_us(10);

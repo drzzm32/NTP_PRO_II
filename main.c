@@ -31,14 +31,13 @@
  *        K2 关, K3 开 → pwr  * TRACK_MV_PER_COUNT + v_off
  *        K2 关, K3 关 → v_off * TRACK_MV_PER_COUNT
  *
- * OLED（256x64 / 4 位灰度）两种形态各一屏，见 oledShowLocal() / oledShowUsb()。
- * 第一行是标题（灰底），三行读数在下面：
- *   独立形态：Vset 设置电压 / Fpwm PWM 频率 / Duty 占空比 / Voff 偏置电压(mV)
- *             / Isen 电流 / Dir 方向
- *   USB 形态：USB mode + Isen 电流 / X Y 两个轴 + Dir 方向 / Btn 按下的开关
+ * OLED（256x64 / 4 位灰度）两种形态各一屏，见 uiShowLocal() / uiShowUsb()。
+ * 界面是扁平化 + 灰度分层，右侧一列方向箭头和那三只物理 LED 等高对应，
+ * 顶部灰底状态带对应右上角的电源/PWM 两只 LED —— 画法和理由写在下面的
+ * "OLED 界面"那段注释里，这里不重复。
  *   ⚠️ 字库只有 ASCII（font.c 的索引是 c - ' '），所以标签只能用英文缩写。
- *   ⚠️ 方向**单独占一格**打印。这一路要经过机械开关 + ADC 分档，是整屏里唯一依赖
- *      模拟量正确性的一项 —— 实测就靠它抓到过 A2 电位器焊错。细节见 oledShowLocal()。
+ *   ⚠️ 方向**单独占一列**显示。这一路要经过机械开关 + ADC 分档，是整屏里唯一依赖
+ *      模拟量正确性的一项 —— 实测就靠它抓到过 A2 电位器焊错。细节见 uiShowLocal()。
  *
  * 急停（K1，只在独立形态下有效，USB 形态没有这个设计）：**锁存** —— 按下即置位，
  * 之后必须等方向柄回到中立位才解除；急停期间输出按中立处理，且三只方向指示灯全灭。
@@ -277,101 +276,230 @@ static void ledPanel(uint8_t k2_on, int8_t dir, uint8_t estop) {
 }
 
 
-/* ---------------------------------------------------------------- OLED 屏
+/* ============================================================================
+ * OLED 界面：扁平化 + 灰度分层
  *
- * 256x64 / 4 位灰度，用 8x16 字库（fid = 1）排 4 行、每行 32 字符。
- * **标题占第一行**（y=0，开机时画一次），三行读数从第二行起（y=16/32/48）。
+ * 界面怎么排，是面板的物理排布决定的 —— 屏幕右侧从上到下挂的是三只方向 LED
+ * （正向 / 中位 / 反向），屏幕右上角是电源 LED 与 PWM LED：
  *
- *   独立形态：                                   USB 形态：
- *     y= 0        NTP PRO II                            NTP PRO II
- *     y=16  Vset 12.00V  Fpwm 109.4kHz            USB mode   Isen  1250mA
- *     y=32  Duty  100%   Voff 2047mV              X  1023 Y -1023  Dir FWD
- *     y=48  Isen   1250mA  Dir FWD                Btn K1--K4--
+ *        ┌──────────────── 屏幕 ────────────────┐     ▲ 正向 LED
+ *        │                                      │     ● 中位 LED
+ *        └──────────────────────────────────────┘     ▼ 反向 LED
+ *                                  右上角：电源 LED / PWM LED
  *
- * 方向单独占一格（Dir）：它来自 AIN_2 的三选一开关，是这一屏里**唯一要猜硬件**
- * 的地方，必须能在屏上直接看到，而不是只靠指示灯推断。详见 oledShowLocal()。
+ * 所以三只方向箭头分别落在 y=16 / 32 / 48 三行，和右边那三只 LED **等高对应**，
+ * 眼睛不用来回找；顶部再留一条灰底状态带，对应右上角那两只 LED。
  *
- * 三个关键约束：
- *   1) 字库只有 ASCII（font.c 的索引是 c - ' '），标签只能用英文缩写。
- *   2) 所有字段都用**固定宽度**格式化（%3u / %4u / %5u / %6d / %02u）。这样覆盖写
- *      同一个位置时不会留下上一帧的尾巴 —— 否则数值从 3 位变 2 位就会拖个残影。
- *      电流和轴值特意用 %6d 而不是 %5d：它们能到 -3125 / -1023，负号会把 %5d 占满，
- *      和前面的标签黏成 "Isen-3125mA"。
- *   3) 方向和按钮那两处是手工拼接，不用 %s（会把 printf 的字符串支持也链进来）。
+ * 灰度怎么用（这是 4 位灰度屏最值钱的地方，比画边框划算得多）：
+ *   1. 状态带整条铺灰底 —— 用**背景灰度**分层，不画边框，这才是扁平；
+ *   2. 标签用暗灰(fg=8)、数值用纯白(fg=15)，同一行里自然分出主次；
+ *   3. 条形图 = 暗灰轨道(gray 3) + 纯白填充(gray 15)；
+ *   4. 三只方向箭头**始终都在**，当前档纯白、其余只留暗灰(fg=5) —— 既看得出
+ *      "一共三档"，又不必画任何框线。急停时三只全暗，和"三只物理 LED 全灭"一致。
  *
- * 刷新策略：每行先格式化再和上一次画上去的比，**没变就一个字节都不发**。
- * 一次全屏重画（三行共几十个字符）量级是几毫秒 —— 开销主要不在 SPI（8MHz、
- * 也就 4KB），而在 oledBinary() 逐列逐行拼 oled_buffer 的那几千次循环。所以外面
- * 限到 5Hz（见 OLED_REFRESH_MS），平均占用几个百分点。
- */
-static char oled_line[3][28];       /* 这一帧的三行读数 */
-static char oled_prev[3][28];       /* 上一次真正画上去的，用来判"变了没" */
+ * 布局（256x64；主行用 8x16 字库，两行次要信息用 8x8 挤在底部）：
+ *
+ *   独立形态                                          USB 形态
+ *   y= 0  灰带 NTP PRO II   STOP LOCAL PWM            灰带 NTP PRO II    USB  PWM
+ *   y=16  Vset ▐██████████░░▌ 12.28V               ▲  X   ▐░░░░██│██░░░░▌  1023
+ *   y=32  Duty ▐███████████░▌  100%                ●  Y   ▐███░░░│░░░░░░▌ -1023
+ *   y=48  Isen  1250mA  Fpwm 109.4kHz              ▼  Btn K1--K3----
+ *   y=56  Voff  2047mV
+ *
+ * 两种形态骨架相同（状态带 + 两条条形图 + 两行小字 + 右侧箭头列），只是内容不同：
+ * 独立形态的条从 0 起（整定电压 / 占空比）；USB 形态的条**以中点为 0**，往左是负、
+ * 往右是正（两个轴）—— 这样一眼就能看出杆在中位还是偏了。
+ *
+ * 做法与约束：
+ *   * 字库只有 ASCII（font.c 的索引是 c - ' '），标签只能用英文缩写；
+ *   * 文本一律**固定宽度**格式化，否则数值位数变少时覆盖写会留下上一帧的尾巴；
+ *   * 状态带 / 方向 / 条形填充各自有缓存，**值没变就不发 SPI**；
+ *   * 方向和按钮两处手工拼接，不用 %s（省得把 printf 的字符串支持也链进来）。
+ * ========================================================================== */
 
-#define OLED_TITLE_Y    0           /* 标题在第一行 */
-#define OLED_LINE0_Y    16          /* 读数从第二行起 */
-#define OLED_LINE_DY    16
+/* ---- 调色板：color[3:0] = 前景(亮)，color[7:4] = 背景 ---- */
+#define UI_BAND_BG      6           /* 状态带底色：中灰，和黑底拉开层次 */
+#define UI_TXT          0x0F        /* 黑底白字：数值与主要信息 */
+#define UI_LABEL        0x08        /* 黑底暗灰字：标签，不跟数值抢注意力 */
+#define UI_TRACK        3           /* 条形图轨道：很暗的灰 */
+#define UI_FILL         15          /* 条形图填充：纯白 */
+#define UI_BAND_TXT     0x6F        /* 灰底白字（bg 6 + fg 15） */
+#define UI_BAND_DIM     0x67        /* 灰底暗灰字：表示"这一项是关的" */
+#define UI_DIR_HOT      0x0F        /* 当前档的方向箭头：黑底纯白 */
+#define UI_DIR_DIM      0x05        /* 其余档：黑底暗灰，只留个位置提示 */
 
-/* 方向的三字母写法，下标用 dir + 1（-1/0/+1 → 0/1/2）。急停时另外显示 "STP" */
-const static char oled_dir_txt[3][4] = { "REV", "NEU", "FWD" };
+/* ---- 布局 ---- */
+#define UI_BAND_Y       0
+#define UI_BAND_H       16
+#define UI_ROW1_Y       16          /* 第一条：Vset / X */
+#define UI_ROW2_Y       32          /* 第二条：Duty / Y */
+#define UI_INFO1_Y      48          /* 8x8 小字第一行 */
+#define UI_INFO2_Y      56          /* 8x8 小字第二行 */
+#define UI_BAR_X        40
+#define UI_BAR_W        128
+#define UI_BAR_H        10
+#define UI_BAR_DY       4           /* 16 行里让 10 高的条垂直居中 */
+#define UI_VAL_X        172         /* 主行数值的 x */
+#define UI_ARROW_X      240         /* 方向箭头列：贴屏幕右边，对齐右侧三只 LED */
+#define UI_BAND_TITLE_X 8
+#define UI_BAND_STOP_X  96
+#define UI_BAND_MODE_X  176
+#define UI_BAND_PWM_X   224
 
-/* 把变了的那几行推上屏。两种形态共用。 */
-static void oledFlush(void) {
-    uint8_t i;
-    for (i = 0; i < 3; i++) {
-        if (strcmp(oled_line[i], oled_prev[i]) != 0) {
-            oledString(0, (uint16_t) (OLED_LINE0_Y + i * OLED_LINE_DY),
-                       1, 0x0F, oled_line[i]);
-            strcpy(oled_prev[i], oled_line[i]);
-        }
+/* 条形图满量程。Vset 取整定的真实上限（pwr*6+v_off 最大 = 2047*6+2047 = 14329mV），
+   这样整条范围内单调；Duty 用 100%；轴用 ±1023。 */
+#define UI_VSET_FULL_MV 14329u
+#define UI_AXIS_FULL    1023
+
+/* ---- 方向箭头（16x16 一位点阵）。字节布局与 oledBinary 一致：
+        byte[f] 的 bit[row%8]，f = 16*(row/8) + col。生成时往返自检过。 ---- */
+const static uint8_t ui_dir_up[32] = {
+    0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC,
+    0xFC, 0xF8, 0xF0, 0xE0, 0xC0, 0x80, 0x00, 0x00,
+    0x3E, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
+    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3E,
+};
+const static uint8_t ui_dir_mid[32] = {
+    0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0,
+    0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0,
+    0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
+    0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
+};
+const static uint8_t ui_dir_dn[32] = {
+    0x3C, 0x7C, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC,
+    0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0x7C, 0x3C,
+    0x00, 0x00, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F,
+    0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00, 0x00, 0x00,
+};
+
+/* ---- 动态元素的缓存：值没变就不发 SPI ---- */
+static char     ui_line[4][28];     /* 这一帧的 4 段文本 */
+static char     ui_prev[4][28];     /* 上一次真正画上去的 */
+static uint16_t ui_px[2];           /* 两条条的填充（0 起的宽度，或中点起的带符号像素） */
+static int8_t   ui_dir_c  = -2;     /* 已画的方向 */
+static uint8_t  ui_estop_c;         /* 已画的急停状态 */
+static uint8_t  ui_band_c;          /* 已画的状态带（模式/PWM/急停 的位组合） */
+static uint8_t  ui_dirty  = 1;      /* 1 = 缓存全部无效（刚上电/换屏），本帧全画 */
+
+/* 把 ui_line[i] 推上屏（内容没变就跳过） */
+static void uiFlush(uint8_t i, uint16_t x, uint16_t y, uint8_t fid, uint8_t color) {
+    if (strcmp(ui_line[i], ui_prev[i]) != 0) {
+        oledString(x, y, fid, color, ui_line[i]);
+        strcpy(ui_prev[i], ui_line[i]);
     }
 }
 
-/* 独立形态：显示输出级的整定量、实测电流，以及**方向**。
- *
- * 方向单独占一格，是因为这一路要经过机械开关 + ADC 分档，是整屏里唯一依赖模拟量
- * 正确性的一项：主循环用 ad_val / LEVER_STEP 把它分成三段
- * （0~699 后退 / 700~1399 中立 / 1400~2047 前进）。真出问题时无非两种：
- *   * 三档的 A 值本身不对/挤在一起 —— 硬件（分压、开关、焊点）的事；
- *   * 某个位置的分压正好压在 700 或 1400 附近，ADC 抖动让读数在相邻两档之间跳，
- *     而主循环要求"连续两次一致才认"，于是 dir 永远定不下来、看着像没方向。
- * 屏上把三字母直接打出来、调试行里再带上 AIN_2 的原值（A%d），就能一眼分辨
- * 是解码错还是分压不对 —— 实测靠这个抓到过一次 A2 电位器焊错。
- *
- * voff_mv 是**偏置电压本身**（0~2047mV，就是 A3 的读数），不是乘以 6 之后的
- * 轨道电压 —— 后者是 setpointMv() 里把整定值放大到满量程时才算的。
- */
-static void oledShowLocal(uint16_t vset_mv, uint16_t dhz, uint8_t duty_pct,
-                          uint16_t voff_mv, int16_t isen_ma,
-                          int8_t dir_out, uint8_t estop) {
-    sprintf(oled_line[0], "Vset%3u.%02uV  Fpwm%4u.%1ukHz",
-            vset_mv / 1000u, (vset_mv % 1000u) / 10u, dhz / 10u, dhz % 10u);
-    sprintf(oled_line[1], "Duty%4u%%   Voff%5umV", duty_pct, voff_mv);
-    /* 这一行是 Isen + Dir 两格，Dir 手工拼在固定偏移上（那里一共 18 字符） */
-    sprintf(oled_line[2], "Isen%6dmA  Dir ", isen_ma);
-    strcpy(oled_line[2] + 18, estop ? "STP" : oled_dir_txt[dir_out + 1]);
-    oledFlush();
+/* 顶部状态带：整条灰底 + 左标题 + 右侧三格（急停 / 模式 / PWM）。
+   整条 256x16 是 1KB SPI，只在状态变化时重画，不值得每轮都发。 */
+static void uiBand(uint8_t usb, uint8_t pwm_on, uint8_t estop) {
+    uint8_t c = (uint8_t) ((usb ? 1u : 0u) | (pwm_on ? 2u : 0u) | (estop ? 4u : 0u));
+    if (!ui_dirty && c == ui_band_c) return;
+    ui_band_c = c;
+
+    oledRect(0, UI_BAND_Y, OLED_WIDTH, UI_BAND_H, UI_BAND_BG);
+    oledString(UI_BAND_TITLE_X, UI_BAND_Y, 1, UI_BAND_TXT, "NTP PRO II");
+    oledString(UI_BAND_STOP_X,  UI_BAND_Y, 1, UI_BAND_TXT, estop ? "STOP " : "     ");
+    oledString(UI_BAND_MODE_X,  UI_BAND_Y, 1, UI_BAND_TXT, usb   ? "USB  " : "LOCAL");
+    oledString(UI_BAND_PWM_X,   UI_BAND_Y, 1, pwm_on ? UI_BAND_TXT : UI_BAND_DIM, "PWM");
 }
 
-/* USB 形态：输出级没在驱动，改显示输入状态 —— 两个轴、方向、按下的开关，外加
- * 仍然可测的电流。 */
-static void oledShowUsb(int16_t ax, int16_t ay, int8_t dir, uint8_t btn,
-                        int16_t isen_ma) {
+/* 条形图（从 0 起）：先铺轨道再铺填充，px 是填充宽度。 */
+static void uiBar(uint8_t idx, uint16_t y, uint16_t px) {
+    if (!ui_dirty && px == ui_px[idx]) return;
+    ui_px[idx] = px;
+
+    oledRect(UI_BAR_X, y + UI_BAR_DY, UI_BAR_W, UI_BAR_H, UI_TRACK);
+    if (px) oledRect(UI_BAR_X, y + UI_BAR_DY, px, UI_BAR_H, UI_FILL);
+}
+
+/* 条形图（以中点为 0）：USB 形态看两个轴用 —— 往左是负、往右是正。 */
+static void uiBarMid(uint8_t idx, uint16_t y, int16_t v) {
+    uint16_t half = UI_BAR_W / 2;
+    int16_t  px   = (int16_t) ((int32_t) v * (int32_t) half / UI_AXIS_FULL);
+
+    if (!ui_dirty && (uint16_t) px == ui_px[idx]) return;
+    ui_px[idx] = (uint16_t) px;
+
+    oledRect(UI_BAR_X, y + UI_BAR_DY, UI_BAR_W, UI_BAR_H, UI_TRACK);
+    if (px > 0)
+        oledRect((uint16_t) (UI_BAR_X + half), y + UI_BAR_DY, (uint16_t) px, UI_BAR_H, UI_FILL);
+    else if (px < 0)
+        oledRect((uint16_t) (UI_BAR_X + half + px), y + UI_BAR_DY,
+                 (uint16_t) (-px), UI_BAR_H, UI_FILL);
+}
+
+/* 方向箭头列。三只始终都画：当前档纯白、其余暗灰；急停时三只全暗。
+   位置 y=16/32/48 与屏幕右边那三只物理 LED 等高对应。 */
+static void uiDir(int8_t dir, uint8_t estop) {
+    if (!ui_dirty && dir == ui_dir_c && estop == ui_estop_c) return;
+    ui_dir_c   = dir;
+    ui_estop_c = estop;
+
+    oledBinary(UI_ARROW_X, UI_ROW1_Y, 16, 16,
+               (!estop && dir ==  1) ? UI_DIR_HOT : UI_DIR_DIM, (uint8_t*) ui_dir_up);
+    oledBinary(UI_ARROW_X, UI_ROW2_Y, 16, 16,
+               (!estop && dir ==  0) ? UI_DIR_HOT : UI_DIR_DIM, (uint8_t*) ui_dir_mid);
+    oledBinary(UI_ARROW_X, UI_INFO1_Y, 16, 16,
+               (!estop && dir == -1) ? UI_DIR_HOT : UI_DIR_DIM, (uint8_t*) ui_dir_dn);
+}
+
+/* 静态框架：两条主行的标签。开机画一次，之后不再动。
+   （条形图的轨道不在里画 —— 它由 uiBar/uiBarMid 在第一次刷新时连同填充一起铺。） */
+static void uiFrame(uint8_t usb) {
+    oledString(0, UI_ROW1_Y, 1, UI_LABEL, usb ? "X" : "Vset");
+    oledString(0, UI_ROW2_Y, 1, UI_LABEL, usb ? "Y" : "Duty");
+}
+
+/* 独立形态：整定电压 / 占空比 / 频率 / 偏置 / 电流 / 方向 */
+static void uiShowLocal(uint8_t pwm_on, int8_t dir_out, uint8_t estop,
+                        uint16_t vset_mv, uint8_t duty_pct, uint16_t dhz,
+                        uint16_t voff_mv, int16_t isen_ma) {
+    uiBand(0, pwm_on, estop);
+    uiDir(dir_out, estop);
+    uiBar(0, UI_ROW1_Y, (uint16_t) ((uint32_t) vset_mv * UI_BAR_W / UI_VSET_FULL_MV));
+    uiBar(1, UI_ROW2_Y, (uint16_t) ((uint16_t) duty_pct * UI_BAR_W / 100u));
+
+    sprintf(ui_line[0], "%3u.%02uV", vset_mv / 1000u, (vset_mv % 1000u) / 10u);
+    sprintf(ui_line[1], "%4u%%", duty_pct);
+    sprintf(ui_line[2], "Isen%6dmA  Fpwm%4u.%1ukHz", isen_ma, dhz / 10u, dhz % 10u);
+    sprintf(ui_line[3], "Voff%5umV", voff_mv);
+
+    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 1, UI_TXT);
+    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 1, UI_TXT);
+    uiFlush(2, 0, UI_INFO1_Y, 0, UI_TXT);           /* 8x8 小字 */
+    uiFlush(3, 0, UI_INFO2_Y, 0, UI_TXT);
+
+    ui_dirty = 0;
+}
+
+/* USB 形态：两个轴（条形图以中点为 0）/ 按下的开关 / 电流 / 方向 */
+static void uiShowUsb(uint8_t pwm_on, int8_t dir, int16_t ax, int16_t ay,
+                      uint8_t btn, int16_t isen_ma) {
     uint8_t i;
 
-    sprintf(oled_line[0], "USB mode   Isen%6dmA", isen_ma);
-    /* %6d 而不是 %5d：轴值能到 ±1023，负号会把 %5d 占满，和前面的 X/Y 黏在一起 */
-    sprintf(oled_line[1], "X%6d Y%6d  Dir ", ax, ay);   /* 到此 21 字符 */
-    strcpy(oled_line[1] + 21, oled_dir_txt[dir + 1]);
+    uiBand(1, pwm_on, 0);                   /* USB 形态没有急停 */
+    uiDir(dir, 0);
+    uiBarMid(0, UI_ROW1_Y, ax);
+    uiBarMid(1, UI_ROW2_Y, ay);
 
-    strcpy(oled_line[2], "Btn ");                       /* 之后 5 组，每组 2 字符 */
+    /* %6d 而不是 %5d：轴值能到 ±1023，负号会把 %5d 占满，和左侧标签黏在一起 */
+    sprintf(ui_line[0], "%6d", ax);
+    sprintf(ui_line[1], "%6d", ay);
+    sprintf(ui_line[2], "Btn ");            /* 之后 5 组，每组 2 字符 */
     for (i = 0; i < 5; i++) {
         uint8_t on = (btn & (1u << i)) ? 1 : 0;
-        oled_line[2][4 + i * 2]     = on ? 'K' : '-';
-        oled_line[2][4 + i * 2 + 1] = on ? (char) ('1' + i) : '-';
+        ui_line[2][4 + i * 2]     = on ? 'K' : '-';
+        ui_line[2][4 + i * 2 + 1] = on ? (char) ('1' + i) : '-';
     }
-    oled_line[2][4 + 5 * 2] = '\0';
+    ui_line[2][4 + 5 * 2] = '\0';
+    sprintf(ui_line[3], "Isen%6dmA", isen_ma);
 
-    oledFlush();
+    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 1, UI_TXT);
+    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 1, UI_TXT);
+    uiFlush(2, 0, UI_INFO1_Y, 0, UI_TXT);
+    uiFlush(3, 0, UI_INFO2_Y, 0, UI_TXT);
+
+    ui_dirty = 0;
 }
 
 
@@ -422,13 +550,17 @@ void main() {
     usbDevInit();
     EA = 1;                     /* 中断全开：USB 和 PWM 的中断从这里开始服务 */
 
-    /* 标题画在**第一行**（灰底 0x8F 强调），下面三行留给读数，互不干扰。
-       开机画一次就够了 —— oledFlush() 只刷那三行，不会把标题冲掉。 */
+    /* 形态判定期间屏上不至于全黑：先把状态带和标题铺上（此刻还不知道形态，
+       所以不碰 ui_band_c 缓存 —— 等形态定下来后 uiBand() 会连状态一起重画）。 */
     oledClear(0x0);
-    oledStringC(128, OLED_TITLE_Y, 1, 0x8F, " NTP PRO II ");
+    oledRect(0, UI_BAND_Y, OLED_WIDTH, UI_BAND_H, UI_BAND_BG);
+    oledString(UI_BAND_TITLE_X, UI_BAND_Y, 1, UI_BAND_TXT, "NTP PRO II");
 
     /* 形态判定：接在 PC 上还是独立控制器。这一次判定贯穿整个供电周期。 */
     USB_HOST = waitUsbHost();
+
+    /* 形态定了：画静态框架（两条主行的标签），动态部分交给后面 5Hz 的刷新 */
+    uiFrame(USB_HOST);
 
     /* 初始化完成，点亮电源指示 */
     LED_PWR = LED_ON;
@@ -527,13 +659,14 @@ void main() {
             oled_last = ms_tick;
             if (USB_HOST) {
                 /* USB 形态：输出级没在驱动，改显示输入状态（值就是上报的那两个轴） */
-                oledShowUsb((int16_t) (pwr - ADC_MID),
-                            (int16_t) (v_off - ADC_MID),
-                            dir, btn_now, isen);
+                uiShowUsb(k2_on, dir,
+                          (int16_t) (pwr - ADC_MID),
+                          (int16_t) (v_off - ADC_MID),
+                          btn_now, isen);
             } else {
-                oledShowLocal(vout, pwm_dhz[pwm_freq_idx],
-                              (uint8_t) ((uint16_t) duty * 100u / PWM_MAX_DUTY),
-                              v_off, isen, dir_out, estop);
+                uiShowLocal(k2_on, dir_out, estop, vout,
+                            (uint8_t) ((uint16_t) duty * 100u / PWM_MAX_DUTY),
+                            pwm_dhz[pwm_freq_idx], v_off, isen);
             }
         }
 

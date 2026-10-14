@@ -258,34 +258,122 @@ uint16_t uart0BlockRecv(uint8_t* ptr, uint16_t siz) {
     return 0;
 }
 
+/* ============================================================================
+ * ADC：单次转换 + 每通道滑动平均（FIFO）滤波
+ *
+ * ADC_CK_SE = FREQ_SYS / 1000000 —— 1MHz 的 ADC 时钟，单次转换比原来（8MHz）慢 8 倍。
+ * 采样率越低，单个采样点在结果里的分量就越重，随机噪声与工频干扰也越显眼，
+ * 所以每个通道都过一个滑动平均。
+ *
+ * 滤波器的形态是**跨调用的历史 FIFO**，不是"一次调用里连采 N 次再平均"：
+ *   * 历史 FIFO 的等效窗口 = N × 主循环周期（这里十几~几十 ms），接近 50Hz 工频的
+ *     一个整周期，能把它压掉。独立形态下主循环是 20ms 节拍（IDLE_POLL_MS）+ 4 次
+ *     转换 ≈ 20.6ms，所以 N=8 时窗口 ≈ 165ms、群延迟 ≈ 82ms，覆盖 50Hz 工频 8 个
+ *     整周期，压得很干净；对机械手柄来说这点延迟无感。
+ *   * "一次连采 N 次"的窗口只有 N × 转换时间（几百 µs），对工频毫无作用，
+ *     还要多花 N 倍的转换时间。
+ *   ⚠️ 窗口是**跟着调用节奏走的**：USB 形态下主循环速度差很多（忙着上报时不延时、
+ *      空闲时 100ms 一次），窗口会随之变化。好在"输入在变 → 上报内容就变 → 走那条
+ *      不延时的快路 → 窗口自动变短"，也就是滤波变重的时候正好是信号本来就不动的
+ *      时候，实际不会造成操作拖影。要固定窗口得用定时器中断按固定节拍采样，
+ *      那是另一个量级的改动，目前不做。
+ * 每个通道第一次被读到时先连采 N 次把窗口灌满 —— 否则刚上电那几轮返回的是
+ * "只有一两个样本"的平均值，比不滤波还跳。
+ *
+ * 求和用 uint16 就够：8 × 4095 = 32760 < 65535（窗口里恒为 8 个 ≤4095 的值）。
+ * 除以窗口长度用右移（长度取 2 的幂）。
+ * ========================================================================== */
+
+#define ADC_CHANNELS    5u                      /* AIN0~AIN4 可用，见 pin.h */
+#define ADC_FIFO_SHIFT  3u                      /* log2(窗口长度) */
+#define ADC_FIFO_LEN    (1u << ADC_FIFO_SHIFT)  /* 窗口长度 = 8，由 SHIFT 推出来 */
+
+static uint16_t adc_fifo[ADC_CHANNELS][ADC_FIFO_LEN];   /* 每通道的历史窗口 */
+static uint16_t adc_sum[ADC_CHANNELS];                  /* 窗口内求和 */
+static uint8_t  adc_head[ADC_CHANNELS];                 /* 下一个要覆盖的位置 */
+static uint8_t  adc_primed[ADC_CHANNELS];               /* 窗口灌满了没有 */
+
+/* 单次转换。切通道后头一次转换的采样保持还没稳，所以连做两次、丢掉第一次 ——
+   这是原来就有的做法，保留。 */
+static uint16_t adcConvert(uint8_t ch) {
+    ADC_CHANN = 1 << ch;
+    delay_us(10);
+
+    ADC_CTRL |= bADC_SAMPLE;
+    delay_us(50);
+    ADC_CTRL &= ~bADC_SAMPLE;
+    while ((ADC_STAT & bADC_IF_ACT) == 0);
+    ADC_STAT |= bADC_IF_ACT;
+
+    delay_us(10);
+    ADC_CTRL |= bADC_SAMPLE;
+    delay_us(50);
+    ADC_CTRL &= ~bADC_SAMPLE;
+    while ((ADC_STAT & bADC_IF_ACT) == 0);
+    ADC_STAT |= bADC_IF_ACT;
+
+    return ADC_FIFO;
+}
+
 void adcInit() {
+    uint8_t i, j;
+
     P1_IE &= ~(0x1F); // P10~P14
     ADC_SETUP |= bADC_POWER_EN;
-    ADC_CK_SE = FREQ_SYS / 8000000;
+
+    /* 1MHz 的 ADC 时钟。比原来的 8MHz 慢 8 倍：单次转换更从容、采样保持更稳，
+       但单点耗时更长 —— 所以下面配了滑动平均，用多次平均换回信噪比。 */
+    ADC_CK_SE = FREQ_SYS / 1000000;
+
     ADC_CTRL &= ~MASK_ADC_CYCLE;
     ADC_CTRL &= ~(bADC_CHANN_MOD1 | bADC_CHANN_MOD0);
     ADC_EX_SW |= bADC_RESOLUTION;
+
+    /* 清滤波器状态（正常只在上电时调一次，但别依赖"静态变量天然是 0"） */
+    for (i = 0; i < ADC_CHANNELS; i++) {
+        adc_sum[i] = 0;
+        adc_head[i] = 0;
+        adc_primed[i] = 0;
+        for (j = 0; j < ADC_FIFO_LEN; j++)
+            adc_fifo[i][j] = 0;
+    }
+
     delay_us(100);
 }
 
+/* 取某个通道**滤波后**的读数。
+   ⚠️ 每次调用只做一次转换，窗口靠多次调用累积 —— 所以调用节奏（每个通道每轮
+   主循环读一次）就是它的采样率。别在同一个循环里对同一通道连读两次，
+   那会把同一时刻的样本重复塞进窗口。 */
 uint16_t adcGet(uint8_t channel) {
+    uint16_t v;
+    uint8_t  i;
+
     /* AIN0~AIN7 就是 P1.0~P1.7，但 P1.5/P1.6/P1.7 被 OLED 占了
        （MOSI / RST / SCK），所以只有前 5 个通道能用。 */
-    channel %= 5;
-    ADC_CHANN = 1 << channel;
-    delay_us(10);
-    ADC_CTRL |= bADC_SAMPLE;
-    delay_us(50);
-    ADC_CTRL &= ~bADC_SAMPLE;
-    while ((ADC_STAT & bADC_IF_ACT) == 0);
-    ADC_STAT |= bADC_IF_ACT;
-    delay_us(10);
-    ADC_CTRL |= bADC_SAMPLE;
-    delay_us(50);
-    ADC_CTRL &= ~bADC_SAMPLE;
-    while ((ADC_STAT & bADC_IF_ACT) == 0);
-    ADC_STAT |= bADC_IF_ACT;
-    return ADC_FIFO;
+    channel %= ADC_CHANNELS;
+
+    v = adcConvert(channel);
+
+    if (!adc_primed[channel]) {
+        /* 首次读到这个通道：补采到窗口满 */
+        adc_primed[channel] = 1;
+        adc_sum[channel] = 0;
+        for (i = 0; i < ADC_FIFO_LEN; i++) {
+            if (i) v = adcConvert(channel);
+            adc_fifo[channel][i] = v;
+            adc_sum[channel] += v;
+        }
+        adc_head[channel] = 0;
+    } else {
+        /* 最老的出窗、新的入窗 */
+        adc_sum[channel] -= adc_fifo[channel][adc_head[channel]];
+        adc_fifo[channel][adc_head[channel]] = v;
+        adc_sum[channel] += v;
+        adc_head[channel] = (uint8_t) ((adc_head[channel] + 1u) & (ADC_FIFO_LEN - 1u));
+    }
+
+    return (uint16_t) (adc_sum[channel] >> ADC_FIFO_SHIFT);
 }
 
 void __pwm1_interrupt() __interrupt (INT_NO_PWM1) __using (2) {

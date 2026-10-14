@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-面板显示预览 —— 把 main.c 里 oledShowLocal() / oledShowUsb() 要画的两屏，
-用 font.c 里**真实**的 font_8x16 字模渲染成 PNG，不用上板就能核对布局。
+面板显示预览 —— 把 main.c 里 uiShowLocal() / uiShowUsb() 要画的两屏，用 font.c 里
+**真实的** font_8x8 / font_8x16 字模 + main.c 里**真实的**方向箭头字模渲染成 PNG，
+不用上板就能核对布局。
 
 为什么值得单独放一个工具：
-  * 字段宽度不够会在屏上留下上一帧的残影，这种问题肉眼看代码很难发现；
-  * "行会不会超过屏宽 32 字符" 一算就知道，但手算容易漏掉边界的负号；
-  * 字库只有 ASCII，想加中文标签得先看到"放不下"；
-  * 方向那一格来自 AIN_2，屏上长什么样要能直接看。
+  * 扁平化界面里"文本有没有越界"、"条形图和数值对不对得上位"这类问题，肉眼看代码
+    很难发现，出张图一眼就看出来；
+  * 一次 8x16 重画是几毫秒，改布局前先看看值不值得；
+  * 字库只有 ASCII，想加中文标签得先看到"放不下"。
 
-防漂移：布局和格式**都从 main.c 里解析**，不在本脚本里再抄一份。
-  从 main.c 取：OLED_TITLE_Y / OLED_LINE0_Y / OLED_LINE_DY、各组 sprintf 格式串、
-                标题文字与颜色（oledStringC 那一行）。
-  只有"方向三字母"和"按钮位图"这两处是手工拼的，这里按同样规则复刻并断言字面量还在。
+防漂移：**布局常量、调色板、格式串、箭头字模都从 main.c 里解析**，不在本脚本里
+再抄一份。只有"绘制顺序"是复刻的（这部分没法解析，改 main.c 的绘制流程时要同步）。
 
 用法：
     python tools/panel_preview.py                 # -> tools/out/panel_preview.png
@@ -38,13 +37,21 @@ FONT_C = ROOT / "font.c"
 MAIN_C = ROOT / "main.c"
 
 SCREEN_W, SCREEN_H = 256, 64
-CHAR_W, CHAR_H = 8, 16
-COLS = SCREEN_W // CHAR_W                               # 一行 32 个字符
-FONT_NAME = "font_8x16"
+
+LAYOUT_MACROS = ("UI_BAND_Y", "UI_BAND_H", "UI_ROW1_Y", "UI_ROW2_Y",
+                 "UI_INFO1_Y", "UI_INFO2_Y", "UI_BAR_X", "UI_BAR_W", "UI_BAR_H",
+                 "UI_BAR_DY", "UI_VAL_X", "UI_ARROW_X", "UI_BAND_TITLE_X",
+                 "UI_BAND_STOP_X", "UI_BAND_MODE_X", "UI_BAND_PWM_X",
+                 "UI_VSET_FULL_MV", "UI_AXIS_FULL")
+
+PALETTE_MACROS = ("UI_BAND_BG", "UI_TXT", "UI_LABEL", "UI_TRACK", "UI_FILL",
+                  "UI_BAND_TXT", "UI_BAND_DIM", "UI_DIR_HOT", "UI_DIR_DIM")
+
+REQUIRED_LITERALS = ("Btn ", "NTP PRO II", "STOP ", "LOCAL", "USB  ", "PWM", "Vset", "Duty")
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace")
+def read(p: Path) -> str:
+    return p.read_text(encoding="utf-8", errors="replace")
 
 
 def strip_comments(s: str) -> str:
@@ -54,110 +61,61 @@ def strip_comments(s: str) -> str:
     return re.sub(r"//[^\r\n]*", "", s)
 
 
-def load_font() -> bytes:
-    m = re.search(rf"uint8_t\s+{FONT_NAME}\s*\[\s*\]\s*=\s*\{{(.*?)\n\}};",
-                  read(FONT_C), re.S)
+def grab_bytes(src: str, name: str) -> bytes:
+    m = re.search(rf"uint8_t\s+{name}\s*\[\s*(\d*)\s*\]\s*=\s*\{{(.*?)\n\}};", src, re.S)
     if not m:
-        sys.exit(f"在 {FONT_C} 里找不到 {FONT_NAME}[]")
-    data = bytes(int(x, 16) for x in
-                 re.findall(r"0x([0-9A-Fa-f]{2})", strip_comments(m.group(1))))
-    if len(data) % 16:
-        sys.exit(f"{FONT_NAME} 长度 {len(data)} 不是 16 的倍数，字模布局变了？")
-    return data
+        sys.exit(f"找不到数组 {name}[]")
+    return bytes(int(x, 16) for x in
+                 re.findall(r"0x([0-9A-Fa-f]{2})", strip_comments(m.group(2))))
 
 
-def load_layout() -> dict:
-    """从 main.c 抓布局常量与标题，避免和固件脱节。"""
-    src = strip_comments(read(MAIN_C))
-
-    def macro(name: str) -> int:
-        m = re.search(rf"#define\s+{name}\s+(\d+)", src)
-        if not m:
-            sys.exit(f"main.c 里找不到 #define {name}")
-        return int(m.group(1))
-
-    m = re.search(r'oledStringC\(\s*\d+\s*,\s*(\w+)\s*,\s*(\d+)\s*,\s*'
-                  r'(0x[0-9A-Fa-f]+)\s*,\s*"([^"]*)"', src)
+def macro(mc: str, name: str) -> int:
+    m = re.search(rf"#define\s+{name}\s+(0x[0-9A-Fa-f]+|\d+)", mc)
     if not m:
-        sys.exit("main.c 里找不到画标题的 oledStringC(...)")
-    if m.group(1) != "OLED_TITLE_Y":
-        sys.exit(f"标题的 y 不是 OLED_TITLE_Y 而是 {m.group(1)}，本脚本要同步")
-
-    return {
-        "title_y": macro("OLED_TITLE_Y"),
-        "line0_y": macro("OLED_LINE0_Y"),
-        "line_dy": macro("OLED_LINE_DY"),
-        "title_color": int(m.group(3), 16),
-        "title_text": m.group(4),
-    }
+        sys.exit(f"main.c 里找不到 #define {name}")
+    return int(m.group(1), 0)
 
 
-def load_formats() -> dict[int, list[str]]:
-    """从 main.c 抓所有 sprintf(oled_line[n], "...") 的格式串。"""
-    src = strip_comments(read(MAIN_C))
-    out: dict[int, list[str]] = {}
-    for n, fmt in re.findall(r'sprintf\(oled_line\[(\d)\],\s*"((?:[^"\\]|\\.)*)"', src):
-        out.setdefault(int(n), []).append(fmt)
-    if not out:
-        sys.exit(f"没能从 {MAIN_C} 里抓到任何 sprintf(oled_line[...]) 格式串")
-    return out
-
-
-def require_literals(*lits: str) -> None:
-    src = strip_comments(read(MAIN_C))
-    for lit in lits:
-        if lit not in src:
-            sys.exit(f"main.c 里找不到 {lit!r} —— 手工拼接那部分改过了，请同步本脚本")
-
-
-def draw_text(px, font: bytes, x0: int, y0: int, s: str, color: int) -> None:
-    """按 oledBinary() 的规则画：每个字符格先填背景色，再把点亮的像素涂前景色。
-    color 的低 4 位 = 前景（亮），高 4 位 = 背景。"""
+def draw_text(px, font: bytes, x0: int, y0: int, s: str, color: int,
+              w: int = 8, h: int = 16) -> None:
+    """按 oledBinary() 的规则画：每个字符格先铺背景色、再把点亮的像素涂前景色。
+    color 低 4 位 = 前景，高 4 位 = 背景。"""
     fg, bg = color & 0x0F, (color >> 4) & 0x0F
+    segs = h // 8
     for i, ch in enumerate(s):
-        o = (ord(ch) - 0x20) * 16
-        if o < 0 or o + 16 > len(font):
+        o = (ord(ch) - 0x20) * segs * w
+        if o < 0 or o + segs * w > len(font):
             continue
-        for col in range(CHAR_W):
-            bits = font[o + col] | (font[o + 8 + col] << 8)     # 低 8 行 | 高 8 行
-            for row in range(CHAR_H):
-                x, y = x0 + i * CHAR_W + col, y0 + row
-                if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
-                    px[x, y] = ((fg if (bits >> row) & 1 else bg)) * 17
+        for col in range(w):
+            for seg in range(segs):
+                bits = font[o + seg * w + col]
+                for r in range(8):
+                    x, y = x0 + i * w + col, y0 + seg * 8 + r
+                    if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
+                        px[x, y] = ((fg if (bits >> r) & 1 else bg)) * 17
 
 
-def put_screen(im: Image.Image, font: bytes, layout: dict, lines: list[str]) -> None:
-    px = im.load()
-    for i, s in enumerate(lines):
-        draw_text(px, font, 0, layout["line0_y"] + i * layout["line_dy"], s, 0x0F)
-    t = layout["title_text"]
-    draw_text(px, font, (SCREEN_W - len(t) * CHAR_W) // 2,
-              layout["title_y"], t, layout["title_color"])
+def draw_glyph(px, glyph: bytes, x0: int, y0: int, w: int, h: int, color: int) -> None:
+    fg, bg = color & 0x0F, (color >> 4) & 0x0F
+    for col in range(w):
+        for row in range(h):
+            f = w * (row // 8) + col
+            if f >= len(glyph):
+                continue
+            x, y = x0 + col, y0 + row
+            if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
+                px[x, y] = ((fg if (glyph[f] >> (row % 8)) & 1 else bg)) * 17
 
 
-# ---------------------------------------------------------------- 两屏的内容
-#
-# 取值按各自实际范围给：Vset 0~14329mV、Fpwm 3.4~218.8kHz、Duty 0~100%、
-# Voff 0~2047mV、Isen -3125~3125mA、轴 -1023~1023。
-
-DIR_TXT = {1: "FWD", 0: "NEU", -1: "REV"}
-
-
-def local_screen(fmt: dict, vset: int, dhz: int, duty: int, voff: int,
-                 isen: int, d: int, estop: bool) -> list[str]:
-    dt = "STP" if estop else DIR_TXT[d]
-    return [fmt[0][0] % (vset // 1000, (vset % 1000) // 10, dhz // 10, dhz % 10),
-            fmt[1][0] % (duty, voff),
-            (fmt[2][0] % isen) + dt]
-
-
-def usb_screen(fmt: dict, ax: int, ay: int, d: int, btn: int, isen: int) -> list[str]:
-    require_literals("Dir ", "Btn ", "oled_dir_txt")
-    # 与 main.c 的循环逐字对应：bit0~bit4 -> K1~K5
-    btn_txt = "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
-    return [fmt[0][-1] % isen,
-            (fmt[1][-1] % (ax, ay)) + DIR_TXT[d],
-            "Btn " + btn_txt]
+def rect(px, x: int, y: int, w: int, h: int, color: int) -> None:
+    """等价于 oledRect()：整块填同一个灰度（color & 0x0F）。"""
+    v = (color & 0x0F) * 17
+    for yy in range(y, y + h):
+        if not (0 <= yy < SCREEN_H):
+            continue
+        for xx in range(x, x + w):
+            if 0 <= xx < SCREEN_W:
+                px[xx, yy] = v
 
 
 def main() -> int:
@@ -165,64 +123,149 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "tools" / "out" / "panel_preview.png"))
     args = ap.parse_args()
 
-    font = load_font()
-    fmts = load_formats()
-    layout = load_layout()
-    print(f"字模 {FONT_NAME}: {len(font)} 字节 = {len(font)//16} 个字形")
-    print(f"布局（从 main.c 解析）: 标题 y={layout['title_y']} 色=0x{layout['title_color']:02X} "
-          f"{layout['title_text']!r}；读数 y={layout['line0_y']}/"
-          f"{layout['line0_y']+layout['line_dy']}/{layout['line0_y']+2*layout['line_dy']}")
-    print(f"格式串: 抓到 {sum(len(v) for v in fmts.values())} 条 (oled_line 下标 {sorted(fmts)})")
+    font_src, main_src = read(FONT_C), read(MAIN_C)
+    mc = strip_comments(main_src)
+
+    f8 = grab_bytes(font_src, "font_8x8")
+    f16 = grab_bytes(font_src, "font_8x16")
+    g_up = grab_bytes(mc, "ui_dir_up")
+    g_mid = grab_bytes(mc, "ui_dir_mid")
+    g_dn = grab_bytes(mc, "ui_dir_dn")
+    print(f"字模: font_8x8 {len(f8)}B/{len(f8)//8} 字, "
+          f"font_8x16 {len(f16)}B/{len(f16)//16} 字, 箭头 {len(g_up)}B x3")
+
+    L = {n: macro(mc, n) for n in LAYOUT_MACROS}
+    C = {n: macro(mc, n) for n in PALETTE_MACROS}
+    print(f"布局: 状态带 y={L['UI_BAND_Y']}+{L['UI_BAND_H']}; 主行 y={L['UI_ROW1_Y']}/{L['UI_ROW2_Y']}; "
+          f"小字 y={L['UI_INFO1_Y']}/{L['UI_INFO2_Y']}")
+    print(f"      条 x={L['UI_BAR_X']} w={L['UI_BAR_W']} h={L['UI_BAR_H']} dy={L['UI_BAR_DY']}; "
+          f"数值 x={L['UI_VAL_X']}; 箭头列 x={L['UI_ARROW_X']}")
+
+    fmts: dict[int, list[str]] = {}
+    for n, f in re.findall(r'sprintf\(ui_line\[(\d)\],\s*"((?:[^"\\]|\\.)*)"', mc):
+        fmts.setdefault(int(n), []).append(f)
+    if not fmts:
+        sys.exit("没能从 main.c 抓到任何 sprintf(ui_line[...]) 格式串")
+    for lit in REQUIRED_LITERALS:
+        if lit not in mc:
+            sys.exit(f"main.c 里找不到字面量 {lit!r} —— 绘制流程改过了，请同步本脚本")
+    print(f"格式串: {sum(len(v) for v in fmts.values())} 条, ui_line 下标 {sorted(fmts)}")
+
+    def blank() -> Image.Image:
+        return Image.new("L", (SCREEN_W, SCREEN_H), 0)
+
+    def band(px, usb: bool, pwm_on: bool, estop: bool) -> None:
+        rect(px, 0, L["UI_BAND_Y"], SCREEN_W, L["UI_BAND_H"], C["UI_BAND_BG"])
+        draw_text(px, f16, L["UI_BAND_TITLE_X"], L["UI_BAND_Y"], "NTP PRO II", C["UI_BAND_TXT"])
+        draw_text(px, f16, L["UI_BAND_STOP_X"], L["UI_BAND_Y"],
+                  "STOP " if estop else "     ", C["UI_BAND_TXT"])
+        draw_text(px, f16, L["UI_BAND_MODE_X"], L["UI_BAND_Y"],
+                  "USB  " if usb else "LOCAL", C["UI_BAND_TXT"])
+        draw_text(px, f16, L["UI_BAND_PWM_X"], L["UI_BAND_Y"], "PWM",
+                  C["UI_BAND_TXT"] if pwm_on else C["UI_BAND_DIM"])
+
+    def bar(px, row_y: int, px_w: int) -> None:
+        rect(px, L["UI_BAR_X"], row_y + L["UI_BAR_DY"],
+             L["UI_BAR_W"], L["UI_BAR_H"], C["UI_TRACK"])
+        if px_w:
+            rect(px, L["UI_BAR_X"], row_y + L["UI_BAR_DY"],
+                 min(px_w, L["UI_BAR_W"]), L["UI_BAR_H"], C["UI_FILL"])
+
+    def bar_mid(px, row_y: int, v: int) -> None:
+        half = L["UI_BAR_W"] // 2
+        off = int(v * half / L["UI_AXIS_FULL"])
+        rect(px, L["UI_BAR_X"], row_y + L["UI_BAR_DY"],
+             L["UI_BAR_W"], L["UI_BAR_H"], C["UI_TRACK"])
+        if off > 0:
+            rect(px, L["UI_BAR_X"] + half, row_y + L["UI_BAR_DY"],
+                 off, L["UI_BAR_H"], C["UI_FILL"])
+        elif off < 0:
+            rect(px, L["UI_BAR_X"] + half + off, row_y + L["UI_BAR_DY"],
+                 -off, L["UI_BAR_H"], C["UI_FILL"])
+
+    def dirs(px, d: int, estop: bool) -> None:
+        for y, g, hit in ((L["UI_ROW1_Y"], g_up, d == 1),
+                          (L["UI_ROW2_Y"], g_mid, d == 0),
+                          (L["UI_INFO1_Y"], g_dn, d == -1)):
+            draw_glyph(px, g, L["UI_ARROW_X"], y, 16, 16,
+                       C["UI_DIR_HOT"] if (hit and not estop) else C["UI_DIR_DIM"])
+
+    def local(vset, dhz, duty, voff, isen, d, estop, pwm_on):
+        im = blank()
+        px = im.load()
+        band(px, False, bool(pwm_on), bool(estop))
+        draw_text(px, f16, 0, L["UI_ROW1_Y"], "Vset", C["UI_LABEL"])
+        draw_text(px, f16, 0, L["UI_ROW2_Y"], "Duty", C["UI_LABEL"])
+        bar(px, L["UI_ROW1_Y"], int(vset * L["UI_BAR_W"] / L["UI_VSET_FULL_MV"]))
+        bar(px, L["UI_ROW2_Y"], int(duty * L["UI_BAR_W"] / 100))
+        dirs(px, d, bool(estop))
+        vals = [fmts[0][0] % (vset // 1000, (vset % 1000) // 10),
+                fmts[1][0] % duty,
+                fmts[2][0] % (isen, dhz // 10, dhz % 10),
+                fmts[3][0] % voff]
+        draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
+        draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
+        draw_text(px, f8, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
+        draw_text(px, f8, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        return im, vals
+
+    def usb(ax, ay, d, btn, isen, pwm_on):
+        im = blank()
+        px = im.load()
+        band(px, True, bool(pwm_on), False)
+        draw_text(px, f16, 0, L["UI_ROW1_Y"], "X", C["UI_LABEL"])
+        draw_text(px, f16, 0, L["UI_ROW2_Y"], "Y", C["UI_LABEL"])
+        bar_mid(px, L["UI_ROW1_Y"], ax)
+        bar_mid(px, L["UI_ROW2_Y"], ay)
+        dirs(px, d, False)
+        btn_txt = "Btn " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
+        # 注意下标：ui_line[2] 在 USB 屏里是手工拼的（没有 sprintf），Isen 落在 ui_line[3]
+        vals = [fmts[0][-1] % ax, fmts[1][-1] % ay, btn_txt, fmts[3][-1] % isen]
+        draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
+        draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
+        draw_text(px, f8, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
+        draw_text(px, f8, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        return im, vals
 
     cases = [
-        ("LOCAL  典型(PWM+额定12V)", local_screen(fmts, 12000, 1094, 100, 2047, 1250, 1, False)),
-        ("LOCAL  典型(电机+v_off*6)", local_screen(fmts, 12282, 341, 50, 613, -820, -1, False)),
-        ("LOCAL  急停（三灯灭 + Dir=STP）", local_screen(fmts, 12000, 1094, 80, 2047, 900, 1, True)),
-        ("LOCAL  边界 min", local_screen(fmts, 0, 34, 0, 0, -3125, -1, False)),
-        ("LOCAL  边界 max", local_screen(fmts, 14329, 2188, 100, 2047, 3125, 1, False)),
-        ("USB    X/Y + Dir FWD + K1 K3", usb_screen(fmts, 1023, -1023, 1, 0b00101, 1250)),
-        ("USB    Dir REV + K2 K4 K5", usb_screen(fmts, -500, 0, -1, 0b11010, 0)),
-        ("USB    边界 min", usb_screen(fmts, -1023, -1023, -1, 0b00000, -3125)),
-        ("USB    边界 max", usb_screen(fmts, 1023, 1023, 1, 0b11111, 3125)),
+        ("LOCAL  PWM + 额定12V（正向）", local(12000, 1094, 100, 2047, 1250, 1, False, True)),
+        ("LOCAL  电机 + pwr*6+v_off（反向）", local(14329, 1094, 100, 2047, -820, -1, False, False)),
+        ("LOCAL  急停：三箭头全暗 + STOP", local(12000, 341, 40, 2047, 900, 1, True, True)),
+        ("LOCAL  边界 min", local(0, 34, 0, 0, -3125, -1, False, False)),
+        ("LOCAL  边界 max", local(14329, 2188, 100, 2047, 3125, 1, False, True)),
+        ("USB    X 右 / Y 左（K1 K3）", usb(1023, -1023, 1, 0b00101, 1250, True)),
+        ("USB    轴居中（K2 K4 K5）", usb(0, 0, 0, 0b11010, 0, False)),
+        ("USB    边界 min", usb(-1023, -1023, -1, 0b00000, -3125, False)),
+        ("USB    边界 max", usb(1023, 1023, 1, 0b11111, 3125, True)),
     ]
 
     bad = []
-    print(f"\n每行最多 {COLS} 字符；同一块屏的行长必须彼此恒定：")
-    groups: dict[str, list[list[int]]] = {}
-    for name, lines in cases:
-        lens = [len(s) for s in lines]
-        groups.setdefault(name.split()[0], []).append(lens)
-        if any(n > COLS for n in lens):
-            bad.append(f"{name}: 行长 {lens} 超出 {COLS}")
-        print(f"   {name:<30} 行长 {lens} {'✘ 超宽!' if any(n > COLS for n in lens) else '✔'}")
-        for s in lines:
-            print(f"        |{s}|")
-
-    for tag, group in groups.items():
-        uniq = {tuple(g) for g in group}
-        if len(uniq) != 1:
-            bad.append(f"{tag} 屏在不同取值下行长不一致：{sorted(uniq)} —— 会留残影")
+    print(f"\n越界检查（文本右端必须 < 箭头列 {L['UI_ARROW_X']}）：")
+    for name, (im, vals) in cases:
+        for i, s in enumerate(vals):
+            x0 = L["UI_VAL_X"] if i < 2 else 0
+            end = x0 + len(s) * 8
+            ok = end <= L["UI_ARROW_X"]
+            if not ok:
+                bad.append(f"{name} 第{i}段 '{s}' 右端 {end} > {L['UI_ARROW_X']}")
+            print(f"   {name[:32]:<34} [{s:<27}] x={x0:>3}..{end:>3} {'✔' if ok else '✘ 越界'}")
     if bad:
         print("\n有问题：")
         for b in bad:
             print("   -", b)
         return 1
-    print("\n行长检查：全部恒定且在屏宽内 ✅")
+    print("   全部在可用区内 ✅")
 
     sc = 3
-    im = Image.new("L", (SCREEN_W * sc + 16, (SCREEN_H * sc + 26) * len(cases) + 8), 40)
-    d = ImageDraw.Draw(im)
-    for i, (name, lines) in enumerate(cases):
+    out_im = Image.new("L", (SCREEN_W * sc + 16, (SCREEN_H * sc + 26) * len(cases) + 8), 40)
+    d = ImageDraw.Draw(out_im)
+    for i, (name, (im, _)) in enumerate(cases):
         top = 8 + i * (SCREEN_H * sc + 26)
         d.text((8, top), name, fill=255)
-        screen = Image.new("L", (SCREEN_W, SCREEN_H), 0)
-        put_screen(screen, font, layout, lines)
-        im.paste(screen.resize((SCREEN_W * sc, SCREEN_H * sc), Image.NEAREST),
-                 (8, top + 18))
-
+        out_im.paste(im.resize((SCREEN_W * sc, SCREEN_H * sc), Image.NEAREST), (8, top + 18))
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    im.save(out)
+    out_im.save(out)
     print(f"\n写出: {out}")
     return 0
 

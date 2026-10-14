@@ -489,15 +489,21 @@ static void uiDir(int8_t dir, uint8_t estop) {
 /* 静态框架：两条主行的标签。开机画一次，之后不再动。
    （条形图的轨道不在里画 —— 它由 uiBar/uiBarMid 在第一次刷新时连同填充一起铺。） */
 static void uiFrame(uint8_t usb) {
-    /* 中文标签走 12x12 子集字库，oledStringZh 会把它在 16px 的行里垂直居中，
-       并把同一行里的 ASCII 下移 3 像素做基线对齐 */
-    /* 标签左右对齐："电  压"中间是**两个半角空格**（6×2 = 12px，正好一个
-       12x12 字格），这样两行标签都是 36px、左右两边都跟"占空比"对得齐。
-       （一个全角空格 U+3000 也是 12px，但生成的字库里没有它的墨迹、会走
-        "缺字占一格"的路径，不如半角空格直白。） */
-    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X轴"   : "电  压");
-    oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? "Y轴"   : "占空比");
+    /* 标签左右对齐：
+         "电  压" = 12 + 空格×2(12) + 12 = 36px，和 "占空比"(3×12 = 36) 等宽，左右都齐；
+         "X  轴" / "Y  轴" 同样用两个半角空格（中间留一个 12px 的中文字格），
+         这两行彼此等宽（32px）—— X/Y 是半角 8px、比中文的 12px 窄，凑不出 36px，
+         这是字宽决定的，不是漏了空格。
+       为什么用两个半角空格而不是一个全角空格(U+3000)：两者都是 12px 宽，但生成的
+       字库里没有全角空格的墨迹（make_fontzh.py 会跳过没有墨迹的字形），那样会走
+       "缺字占一格"的路径 —— 能work，但是隐式的；半角空格是 font_6x8 里本来就有
+       的字形。另外 6×2 = 12 已经是 4 的倍数，不会被"补齐到 4 的倍数"那条规则改宽度。
+       中文走 12x12 子集字库，oledStringZh 把它在 16px 的行里垂直居中，
+       同一行里的 ASCII 再下移 3 像素做基线对齐。 */
+    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X  轴" : "电  压");
+    oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? "Y  轴" : "占空比");
 }
+
 
 /* 独立形态：整定电压 / 占空比 / 频率 / 偏置 / 电流 / 方向 */
 static void uiShowLocal(uint8_t pwm_on, int8_t dir_out, uint8_t estop,

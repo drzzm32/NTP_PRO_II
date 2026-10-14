@@ -52,7 +52,7 @@ LAYOUT_MACROS = ("UI_BAND_Y", "UI_BAND_H", "UI_ROW1_Y", "UI_ROW2_Y",
 PALETTE_MACROS = ("UI_BAND_BG", "UI_TXT", "UI_LABEL", "UI_TRACK", "UI_FILL",
                   "UI_BAND_TXT", "UI_BAND_DIM", "UI_DIR_HOT", "UI_DIR_DIM")
 
-REQUIRED_LITERALS = ("NTP PRO II", "PWM", "电  压", "占空比", "X轴", "Y轴",
+REQUIRED_LITERALS = ("NTP PRO II", "PWM", "电  压", "占空比", "X  轴", "Y  轴",
                      "电流", "频率", "偏置", "急停", "本机", "USB", "按键", "电  压")
 
 # main.c 里 ui_line 是 char[4][40]，格式化后的 **UTF-8 字节数**不能超这个
@@ -377,8 +377,8 @@ def main() -> int:
         im = blank()
         px = im.load()
         band(px, True, bool(pwm_on), False)
-        draw_mix6(px, f6, zh, 0, L["UI_ROW1_Y"], "X轴", C["UI_LABEL"])
-        draw_mix6(px, f6, zh, 0, L["UI_ROW2_Y"], "Y轴", C["UI_LABEL"])
+        draw_mix6(px, f6, zh, 0, L["UI_ROW1_Y"], "X  轴", C["UI_LABEL"])
+        draw_mix6(px, f6, zh, 0, L["UI_ROW2_Y"], "Y  轴", C["UI_LABEL"])
         bar_mid(px, L["UI_ROW1_Y"], ax)
         bar_mid(px, L["UI_ROW2_Y"], ay)
         dirs(px, d, False)

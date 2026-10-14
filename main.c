@@ -500,8 +500,8 @@ static void uiFrame(uint8_t usb) {
        的字形。另外 6×2 = 12 已经是 4 的倍数，不会被"补齐到 4 的倍数"那条规则改宽度。
        中文走 12x12 子集字库，oledStringZh 把它在 16px 的行里垂直居中，
        同一行里的 ASCII 再下移 3 像素做基线对齐。 */
-    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X  轴" : "电  压");
-    oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? "Y  轴" : "占空比");
+    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? " X 轴" : "电  压");
+    oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? " Y 轴" : "占空比");
 }
 
 

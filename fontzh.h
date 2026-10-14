@@ -34,6 +34,6 @@ const uint8_t* fontzhGet(uint16_t code);
  *   * 其余字符交给 ASCII 字库，fid 就是 fontGet() 的字体号；
  *   * 字库里没有的中文占一格宽度、不画东西，免得整行错位。
  * 支持 '\n' 换行（回行首、下移 10px）。 */
-void oledStringZh(uint16_t x, uint16_t y, uint8_t fid, uint8_t color, const char* str);
+void oledStringZh(uint16_t x, uint16_t y, uint8_t color, const char* str);
 
 #endif

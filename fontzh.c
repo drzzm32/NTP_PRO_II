@@ -41,11 +41,7 @@ static uint8_t        zh_pass, zh_run, zh_top, zh_dy, zh_w;
 /* 行内排版：中文在 16px 的行里垂直居中（上下各留 (16-H)/2），ASCII 6x8 再往下偏
    FONTZH_DY (=3) —— 这样两者基线才对得上（12x12 中文基线约在第 10 行、
    6x8 ASCII 在第 7 行，差 3）。FONTZH_DY 由生成的头文件给出，见 fontzh_data.h。 */
-/* ⚠️ 第 3 个参数 fid 现在**没有用了**：切到 12x12 中文后所有文本行都是 16px 高
-   （排版见 main.c），不再分 8x16/8x8 两种 ASCII 字库。先留着占位，等 main.c 的
-   排版改完（方案 B）再把这个参数删掉，免得两步之间编译不过。 */
-void oledStringZh(uint16_t x, uint16_t y, uint8_t fid, uint8_t color, const char* str) {
-    (void) fid;                                     /* 目前不参与排版 */
+void oledStringZh(uint16_t x, uint16_t y, uint8_t color, const char* str) {
     const uint8_t* g;
 
     zh_top = (uint8_t) ((16u - FONTZH_H) / 2u);

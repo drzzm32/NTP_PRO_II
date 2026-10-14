@@ -339,8 +339,11 @@ static void ledPanel(uint8_t k2_on, int8_t dir, uint8_t estop) {
 #define UI_BAND_H       16
 #define UI_ROW1_Y       16          /* 第一条：Vset / X */
 #define UI_ROW2_Y       32          /* 第二条：Duty / Y */
-#define UI_INFO1_Y      48          /* 8x8 小字第一行 */
-#define UI_INFO2_Y      56          /* 8x8 小字第二行 */
+/* 方案 B 的最后一行：16px 高的信息行（12x12 中文 + 6x8 ASCII 混排）。
+   原来是 48/56 两行 8x8 小字 —— 12px 的中文塞不进 8px 的行，所以合并成一行。
+   ⚠️ 宽度要按"补齐到 4 的倍数"算（见 oledStringZh 的说明），留够余量：
+   下面那串实测约 224px，箭头列从 240 开始，够用。 */
+    #define UI_INFO1_Y      48
 #define UI_BAR_X        40
 #define UI_BAR_W        128
 #define UI_BAR_H        10
@@ -385,8 +388,8 @@ const static uint8_t ui_dir_dn[32] = {
    仍是 __data —— 而直接寻址区一共只有 128 字节，本工程已经被 oled/main/sys 几个
    模块占满（加中文字库时就是卡在这里：链接报 "Couldn't get N bytes ... for
    area OSEG"）。UI 这些量一轮只碰几次，放 xdata 慢一点无所谓。 */
-static __xdata char     ui_line[4][40]; /* 这一帧的 4 段文本（UTF-8） */
-static __xdata char     ui_prev[4][40]; /* 上一次真正画上去的 */
+static __xdata char     ui_line[4][48]; /* 这一帧的 4 段文本（UTF-8） */
+static __xdata char     ui_prev[4][48]; /* 上一次真正画上去的 */
 static __xdata uint16_t ui_px[2];       /* 两条条的填充（0 起的宽度，或中点起的带符号像素） */
 static __xdata int8_t   ui_dir_c  = -2; /* 已画的方向 */
 static __xdata uint8_t  ui_estop_c;     /* 已画的急停状态 */
@@ -394,11 +397,14 @@ static __xdata uint8_t  ui_band_c;      /* 已画的状态带（模式/PWM/急�
 static __xdata uint8_t  ui_dirty  = 1;  /* 1 = 缓存全部无效（刚上电/换屏），本帧全画 */
 
 /* 把 ui_line[i] 推上屏（内容没变就跳过）。
-   统一走 oledStringZh()：纯 ASCII 时它逐个调 oledChar，效果和 oledString() 一样，
+   zh=1 时走 oledStringZh()（6x8 ASCII + 12x12 中文混排），zh=0 时走 8x16 的 oledString()。
    有中文时自动查子集字库 —— 这样不用维护两套调用。 */
-static void uiFlush(uint8_t i, uint16_t x, uint16_t y, uint8_t fid, uint8_t color) {
+static void uiFlush(uint8_t i, uint16_t x, uint16_t y, uint8_t zh, uint8_t color) {
     if (strcmp(ui_line[i], ui_prev[i]) != 0) {
-        oledStringZh(x, y, fid, color, ui_line[i]);
+        /* zh=0：纯数字，走 8x16 字库（大数字一眼可读）；
+           zh=1：中英混排，走 oledStringZh()（6x8 ASCII + 12x12 中文） */
+        if (zh) oledStringZh(x, y, color, ui_line[i]);
+        else    oledString(x, y, 1, color, ui_line[i]);
         strcpy(ui_prev[i], ui_line[i]);
     }
 }
@@ -413,8 +419,8 @@ static void uiBand(uint8_t usb, uint8_t pwm_on, uint8_t estop) {
     oledRect(0, UI_BAND_Y, OLED_WIDTH, UI_BAND_H, UI_BAND_BG);
     oledString(UI_BAND_TITLE_X, UI_BAND_Y, 1, UI_BAND_TXT, "NTP PRO II");
     /* 急停用中文更醒目；状态带每次变化都是整条重画，所以不用手动擦掉旧字 */
-    if (estop) oledStringZh(UI_BAND_STOP_X, UI_BAND_Y, 1, UI_BAND_TXT, "急停");
-    oledStringZh(UI_BAND_MODE_X,  UI_BAND_Y, 1, UI_BAND_TXT, usb ? "USB" : "本机");
+    if (estop) oledStringZh(UI_BAND_STOP_X, UI_BAND_Y, UI_BAND_TXT, "急停");
+    oledStringZh(UI_BAND_MODE_X,  UI_BAND_Y, UI_BAND_TXT, usb ? "USB" : "本机");
     oledString(UI_BAND_PWM_X,   UI_BAND_Y, 1, pwm_on ? UI_BAND_TXT : UI_BAND_DIM, "PWM");
 }
 
@@ -470,9 +476,10 @@ static void uiDir(int8_t dir, uint8_t estop) {
 /* 静态框架：两条主行的标签。开机画一次，之后不再动。
    （条形图的轨道不在里画 —— 它由 uiBar/uiBarMid 在第一次刷新时连同填充一起铺。） */
 static void uiFrame(uint8_t usb) {
-    /* 中文标签走 8x8 子集字库，oledStringZh 会把它在 16px 的行里垂直居中 */
-    oledStringZh(0, UI_ROW1_Y, 1, UI_LABEL, usb ? "X轴"   : "电压");
-    oledStringZh(0, UI_ROW2_Y, 1, UI_LABEL, usb ? "Y轴"   : "占空比");
+    /* 中文标签走 12x12 子集字库，oledStringZh 会把它在 16px 的行里垂直居中，
+       并把同一行里的 ASCII 下移 3 像素做基线对齐 */
+    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X轴"   : "电压");
+    oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? "Y轴"   : "占空比");
 }
 
 /* 独立形态：整定电压 / 占空比 / 频率 / 偏置 / 电流 / 方向 */
@@ -487,13 +494,14 @@ static void uiShowLocal(uint8_t pwm_on, int8_t dir_out, uint8_t estop,
     sprintf(ui_line[0], "%3u.%02uV", vset_mv / 1000u, (vset_mv % 1000u) / 10u);
     sprintf(ui_line[1], "%4u%%", duty_pct);
     /* 8x8 小字行：中文和 8x8 的 ASCII 同高，正好混排（此处最长 31 字节） */
-    sprintf(ui_line[2], "电流%6dmA  频率%4u.%1ukHz", isen_ma, dhz / 10u, dhz % 10u);
-    sprintf(ui_line[3], "偏置%5umV", voff_mv);
+    /* 三项塞进一行 16px：6x8 的 ASCII 窄，加上 12x12 中文一共约 224px */
+    sprintf(ui_line[2], "电流%6dmA 频率%4u.%1uk 偏置%5umV",
+            isen_ma, dhz / 10u, dhz % 10u, voff_mv);
+    ui_line[3][0] = '\0';
 
-    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 1, UI_TXT);
-    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 1, UI_TXT);
-    uiFlush(2, 0, UI_INFO1_Y, 0, UI_TXT);           /* 8x8 小字 */
-    uiFlush(3, 0, UI_INFO2_Y, 0, UI_TXT);
+    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 0, UI_TXT);
+    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 0, UI_TXT);
+    uiFlush(2, 0, UI_INFO1_Y, 1, UI_TXT);            /* 6x8 + 12x12 混排 */
 
     ui_dirty = 0;
 }
@@ -521,12 +529,12 @@ static void uiShowUsb(uint8_t pwm_on, int8_t dir, int16_t ax, int16_t ay,
         ui_line[2][k + i * 2 + 1] = on ? (char) ('1' + i) : '-';
     }
     ui_line[2][k + 5 * 2] = '\0';
-    sprintf(ui_line[3], "电流%6dmA", isen_ma);
+    /* 电流接在按钮后面，同样挤在这一行里 */
+    sprintf(ui_line[2] + k + 5 * 2, " 电流%6dmA", isen_ma);
 
-    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 1, UI_TXT);
-    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 1, UI_TXT);
-    uiFlush(2, 0, UI_INFO1_Y, 0, UI_TXT);
-    uiFlush(3, 0, UI_INFO2_Y, 0, UI_TXT);
+    uiFlush(0, UI_VAL_X, UI_ROW1_Y, 0, UI_TXT);
+    uiFlush(1, UI_VAL_X, UI_ROW2_Y, 0, UI_TXT);
+    uiFlush(2, 0, UI_INFO1_Y, 1, UI_TXT);            /* 6x8 + 12x12 混排 */
 
     ui_dirty = 0;
 }

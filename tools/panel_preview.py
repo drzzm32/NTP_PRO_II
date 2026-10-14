@@ -164,14 +164,79 @@ def draw_utf8(px, font: bytes, zh: dict, x0: int, y0: int, s: str, color: int,
     return x
 
 
+def pack_ascii_buf(font6: bytes, s: str, run: int, buf_w: int,
+                   fg: int, bg: int) -> bytearray:
+    """**忠实模拟固件的 oledString6N()**：把 run 个字按 6 像素步进合成进一个
+    "每行 buf_w 像素" 的 nibble 缓冲（buf_w 对应固件里的 bl_w）。
+
+    偶数像素写高 nibble（高半字节是左边那个像素）、奇数写低 nibble —— 同 oledBinary。
+    """
+    buf = bytearray((buf_w // 2) * 8)
+    fill = (bg << 4) | bg
+    for i in range(len(buf)):
+        buf[i] = fill
+    for i, ch in enumerate(s[:run]):
+        o = (ord(ch) - 0x20) * 6
+        if not (0 <= o and o + 6 <= len(font6)):
+            continue
+        for col in range(6):
+            m = font6[o + col]
+            for r in range(8):
+                ox = i * 6 + col
+                q = r * (buf_w // 2) + (ox >> 1)
+                if q >= len(buf):
+                    continue
+                v = fg if (m >> r) & 1 else bg
+                if ox & 1:
+                    buf[q] = (buf[q] & 0xF0) | v
+                else:
+                    buf[q] = (buf[q] & 0x0F) | (v << 4)
+    return buf
+
+
+def decode_transfer(buf: bytearray, w: int, rows: int) -> list:
+    """**忠实模拟固件的 oledTransfer(x, y, w, rows, ptr, 0)**：位图是"顺序发
+    w*rows/2 字节"，也就是按 **w/2 字节一行** 读。缓冲区行距不等于 w 时，
+    读出来的行就会整体错位 —— 真机上的花屏就是这么来的。
+    """
+    out = []
+    for r in range(rows):
+        row = []
+        for c in range(w):
+            idx = r * (w // 2) + (c >> 1)
+            b = buf[idx] if 0 <= idx < len(buf) else 0
+            row.append((b >> 4) if (c & 1) == 0 else (b & 0x0F))
+        out.append(row)
+    return out
+
+
+def stride_selftest(font6: bytes) -> bool:
+    """确认这个模型**真的能抓到行距 bug**：对"1 个字"（w=8）这种短段，
+    用 buf_w=48 合成、按 w=8 解码，结果必须和 buf_w=w 时不同。
+    如果两者相同，说明模型没在模拟真实打包，这道自检就是假的。
+    """
+    bad = 0
+    for run, w in ((1, 8), (3, 20), (7, 44)):
+        s = ("X", "USB", " 2047mV")[((1, 3, 7).index(run))]
+        ok = decode_transfer(pack_ascii_buf(font6, s, run, w, 15, 0), w, 8)
+        bug = decode_transfer(pack_ascii_buf(font6, s, run, 48, 15, 0), w, 8)
+        if ok == bug:
+            print(f"   ✗ 自检失败：{s!r} (w={w}) 用错行距却解出一样的结果，模型不可信")
+            bad += 1
+    if not bad:
+        print("   行距自检 ✅ 模型能复现/预防'缓冲行距 != 传输宽度'这类花屏")
+    return bad == 0
+
+
 def draw_mix6(px, font6: bytes, zh: dict, x0: int, y0: int, s: str, color: int) -> int:
-    """镜像固件的 oledStringZh()：ASCII 走 6x8、中文走子集字库（都是 16px 行）。
+    """镜像固件的 oledStringZh()：ASCII 走 6x8、中文走子集字库（都在 16px 行里）。
 
     * 中文在行内垂直居中：(16 - ZH_H) // 2。
     * ASCII 再下移 ZH_DY 做基线对齐。
-    * ⚠️ ASCII 段的推进量用**补齐到 4 的倍数**后的宽度，和固件一致 ——
-      否则后面接的中文会落在非 4 对齐的 x 上，而地址窗口按 x/4 对齐（见 oledAddr）。
-      一次最多 8 个字（固件里 oledString6N 的上限）。
+    * ASCII 段**走 pack_ascii_buf + decode_transfer 的真实打包/解码路径**
+      （不是直接画像素）—— 这样"缓冲行距 != 传输宽度"这类内存布局错误
+      在预览里也会现形，而不是渲染得好好的、真机却花屏。
+    * 推进量用补齐到 4 的倍数后的宽度，和固件一致（一次最多 8 个字）。
     """
     fg, bg = color & 0x0F, (color >> 4) & 0x0F
     top = (16 - ZH_H) // 2
@@ -187,16 +252,15 @@ def draw_mix6(px, font6: bytes, zh: dict, x0: int, y0: int, s: str, color: int) 
         run = 0
         while run < 8 and run < len(s) and ord(s[run]) < 0x80:
             run += 1
-        for i, ch in enumerate(s[:run]):
-            o = (ord(ch) - 0x20) * 6
-            if 0 <= o and o + 6 <= len(font6):
-                for col in range(6):
-                    bits = font6[o + col]
-                    for r in range(8):
-                        xx, yy = x + i * 6 + col, y0 + top + ZH_DY + r
-                        if 0 <= xx < SCREEN_W and 0 <= yy < SCREEN_H:
-                            px[xx, yy] = ((fg if (bits >> r) & 1 else bg)) * 17
-        x += ((6 * run + 3) // 4) * 4
+        w = ((6 * run + 3) // 4) * 4
+        # 固件里缓冲行距就是 w（oledString6N 里 bl_w = w）；这里也保持一致。
+        buf = pack_ascii_buf(font6, s, run, w, fg, bg)
+        for r, row in enumerate(decode_transfer(buf, w, 8)):
+            for c, v in enumerate(row):
+                xx, yy = x + c, y0 + top + ZH_DY + r
+                if 0 <= xx < SCREEN_W and 0 <= yy < SCREEN_H:
+                    px[xx, yy] = v * 17
+        x += w
         s = s[run:]
     return x
 
@@ -222,6 +286,7 @@ def main() -> int:
 
     f8 = grab_bytes(font_src, "font_8x8")
     f6 = grab_bytes(font_src, "font_6x8")
+    stride_selftest(f6)
     f16 = grab_bytes(font_src, "font_8x16")
     g_up = grab_bytes(mc, "ui_dir_up")
     g_mid = grab_bytes(mc, "ui_dir_mid")

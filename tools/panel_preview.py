@@ -34,13 +34,17 @@ except ImportError:                                     # pragma: no cover
 
 ROOT = Path(__file__).resolve().parent.parent           # NTP_PRO_II/
 FONT_C = ROOT / "font.c"
-FONTZH_C = ROOT / "fontzh_data.c"                       # 生成的中文子集
+FONTZH_C = ROOT / "fontzh_data.c"
+FONTZH_H_C = ROOT / "fontzh_data.h"                  # 生成的尺寸头                       # 生成的中文子集
 MAIN_C = ROOT / "main.c"
+
+# 中文字形尺寸 / 混排时 6x8 ASCII 的下移量：由 load_fontzh() 从生成的头文件填进来
+ZH_W, ZH_H, ZH_DY = 12, 12, 3
 
 SCREEN_W, SCREEN_H = 256, 64
 
 LAYOUT_MACROS = ("UI_BAND_Y", "UI_BAND_H", "UI_ROW1_Y", "UI_ROW2_Y",
-                 "UI_INFO1_Y", "UI_INFO2_Y", "UI_BAR_X", "UI_BAR_W", "UI_BAR_H",
+                 "UI_INFO1_Y", "UI_BAR_X", "UI_BAR_W", "UI_BAR_H",
                  "UI_BAR_DY", "UI_VAL_X", "UI_ARROW_X", "UI_BAND_TITLE_X",
                  "UI_BAND_STOP_X", "UI_BAND_MODE_X", "UI_BAND_PWM_X",
                  "UI_VSET_FULL_MV", "UI_AXIS_FULL")
@@ -52,7 +56,7 @@ REQUIRED_LITERALS = ("NTP PRO II", "PWM", "电压", "占空比", "X轴", "Y轴",
                      "电流", "频率", "偏置", "急停", "本机", "USB", "按键")
 
 # main.c 里 ui_line 是 char[4][40]，格式化后的 **UTF-8 字节数**不能超这个
-LINE_BUF = 40
+LINE_BUF = 48          # main.c 里现在是 char ui_line[4][48]
 
 
 def read(p: Path) -> str:
@@ -74,17 +78,32 @@ def grab_bytes(src: str, name: str) -> bytes:
                  re.findall(r"0x([0-9A-Fa-f]{2})", strip_comments(m.group(2))))
 
 
-def load_fontzh() -> dict:
-    """读 tools/make_fontzh.py 生成的中文子集 → {码位: 8 字节点阵}。"""
-    if not FONTZH_C.exists():
-        print(f"   （没有 {FONTZH_C.name}，中文会按缺字画成空白）")
-        return {}
-    src = strip_comments(read(FONTZH_C))
-    m = re.search(r"fontzh_codes\[\]\s*=\s*\{(.*?)\};", src, re.S)
+def load_fontzh() -> tuple:
+    """读 tools/make_fontzh.py 生成的中文子集。
+
+    尺寸**从 fontzh_data.h 读**，不写死 —— 现在这档是 12x12（每字 24 字节：
+    12 列 × 2 段），换成 8x8 那档也能直接用。
+    返回 ({码位: 点阵}, W, H, 混排时 6x8 ASCII 要下移的像素数)。
+    """
+    if not FONTZH_C.exists() or not FONTZH_H_C.exists():
+        print("   （没有 fontzh_data.c/.h，中文会按缺字画成空白）")
+        return {}, 12, 12, 3
+    hs = read(FONTZH_H_C)
+
+    def hdef(name: str) -> int:
+        m = re.search(rf"#define\s+{name}\s+(\d+)", hs)
+        if not m:
+            sys.exit(f"fontzh_data.h 里找不到 {name}")
+        return int(m.group(1))
+
+    w, h, per, dy = hdef("FONTZH_W"), hdef("FONTZH_H"), hdef("FONTZH_BYTES"), hdef("FONTZH_DY")
+    s = strip_comments(read(FONTZH_C))
+    m = re.search(r"fontzh_codes\[\]\s*=\s*\{(.*?)\};", s, re.S)
     codes = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{4})", m.group(1))] if m else []
-    bits = grab_bytes(src, "fontzh_bits")
-    return {c: bits[i * 8:(i + 1) * 8] for i, c in enumerate(codes)
-            if len(bits[i * 8:(i + 1) * 8]) == 8}
+    bits = grab_bytes(s, "fontzh_bits")
+    zh = {c: bits[i * per:(i + 1) * per] for i, c in enumerate(codes)
+          if len(bits[i * per:(i + 1) * per]) == per}
+    return zh, w, h, dy
 
 
 def macro(mc: str, name: str) -> int:
@@ -127,10 +146,9 @@ def draw_glyph(px, glyph: bytes, x0: int, y0: int, w: int, h: int, color: int) -
 
 def draw_utf8(px, font: bytes, zh: dict, x0: int, y0: int, s: str, color: int,
               w: int = 8, h: int = 16) -> int:
-    """镜像 main.c 的 oledStringZh()：非 ASCII 查中文字表（8x8，在 h 里垂直居中），
-    其余交给点阵字库。返回结束时的 x。"""
+    """画一行：中文走子集字库（在 h 里垂直居中），其余交给传入的 ASCII 点阵字库。
+    返回结束时的 x。"""
     x = x0
-    off = (h - 8) // 2
     for ch in s:
         if ch == "\n":
             x = 0
@@ -141,8 +159,45 @@ def draw_utf8(px, font: bytes, zh: dict, x0: int, y0: int, s: str, color: int,
         else:
             g = zh.get(ord(ch))
             if g:
-                draw_glyph(px, g, x, y0 + off, 8, 8, color)
-        x += 8
+                draw_glyph(px, g, x, y0 + (h - ZH_H) // 2, ZH_W, ZH_H, color)
+        x += ZH_W if ord(ch) >= 0x80 else w
+    return x
+
+
+def draw_mix6(px, font6: bytes, zh: dict, x0: int, y0: int, s: str, color: int) -> int:
+    """镜像固件的 oledStringZh()：ASCII 走 6x8、中文走子集字库（都是 16px 行）。
+
+    * 中文在行内垂直居中：(16 - ZH_H) // 2。
+    * ASCII 再下移 ZH_DY 做基线对齐。
+    * ⚠️ ASCII 段的推进量用**补齐到 4 的倍数**后的宽度，和固件一致 ——
+      否则后面接的中文会落在非 4 对齐的 x 上，而地址窗口按 x/4 对齐（见 oledAddr）。
+      一次最多 8 个字（固件里 oledString6N 的上限）。
+    """
+    fg, bg = color & 0x0F, (color >> 4) & 0x0F
+    top = (16 - ZH_H) // 2
+    x = x0
+    while s:
+        if ord(s[0]) >= 0x80:
+            g = zh.get(ord(s[0]))
+            if g:
+                draw_glyph(px, g, x, y0 + top, ZH_W, ZH_H, color)
+            x += ZH_W
+            s = s[1:]
+            continue
+        run = 0
+        while run < 8 and run < len(s) and ord(s[run]) < 0x80:
+            run += 1
+        for i, ch in enumerate(s[:run]):
+            o = (ord(ch) - 0x20) * 6
+            if 0 <= o and o + 6 <= len(font6):
+                for col in range(6):
+                    bits = font6[o + col]
+                    for r in range(8):
+                        xx, yy = x + i * 6 + col, y0 + top + ZH_DY + r
+                        if 0 <= xx < SCREEN_W and 0 <= yy < SCREEN_H:
+                            px[xx, yy] = ((fg if (bits >> r) & 1 else bg)) * 17
+        x += ((6 * run + 3) // 4) * 4
+        s = s[run:]
     return x
 
 
@@ -166,11 +221,13 @@ def main() -> int:
     mc = strip_comments(main_src)
 
     f8 = grab_bytes(font_src, "font_8x8")
+    f6 = grab_bytes(font_src, "font_6x8")
     f16 = grab_bytes(font_src, "font_8x16")
     g_up = grab_bytes(mc, "ui_dir_up")
     g_mid = grab_bytes(mc, "ui_dir_mid")
     g_dn = grab_bytes(mc, "ui_dir_dn")
-    zh = load_fontzh()
+    global ZH_W, ZH_H, ZH_DY
+    zh, ZH_W, ZH_H, ZH_DY = load_fontzh()
     print(f"字模: font_8x8 {len(f8)}B/{len(f8)//8} 字, "
           f"font_8x16 {len(f16)}B/{len(f16)//16} 字, 箭头 {len(g_up)}B x3")
     print(f"中文子集: {len(zh)} 个字（来自 {FONTZH_C.name}）"
@@ -179,7 +236,7 @@ def main() -> int:
     L = {n: macro(mc, n) for n in LAYOUT_MACROS}
     C = {n: macro(mc, n) for n in PALETTE_MACROS}
     print(f"布局: 状态带 y={L['UI_BAND_Y']}+{L['UI_BAND_H']}; 主行 y={L['UI_ROW1_Y']}/{L['UI_ROW2_Y']}; "
-          f"小字 y={L['UI_INFO1_Y']}/{L['UI_INFO2_Y']}")
+          f"信息行 y={L['UI_INFO1_Y']}")
     print(f"      条 x={L['UI_BAR_X']} w={L['UI_BAR_W']} h={L['UI_BAR_H']} dy={L['UI_BAR_DY']}; "
           f"数值 x={L['UI_VAL_X']}; 箭头列 x={L['UI_ARROW_X']}")
 
@@ -244,12 +301,11 @@ def main() -> int:
         dirs(px, d, bool(estop))
         vals = [fmts[0][0] % (vset // 1000, (vset % 1000) // 10),
                 fmts[1][0] % duty,
-                fmts[2][0] % (isen, dhz // 10, dhz % 10),
-                fmts[3][0] % voff]
+                fmts[2][0] % (isen, dhz // 10, dhz % 10, voff)]
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
-        draw_utf8(px, f8, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
-        draw_utf8(px, f8, zh, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        draw_mix6(px, f6, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"])
+
         return im, vals
 
     def usb(ax, ay, d, btn, isen, pwm_on):
@@ -263,11 +319,10 @@ def main() -> int:
         dirs(px, d, False)
         btn_txt = "按键 " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
         # 注意下标：ui_line[2] 在 USB 屏里是手工拼的（没有 sprintf），电流落在 ui_line[3]
-        vals = [fmts[0][-1] % ax, fmts[1][-1] % ay, btn_txt, fmts[3][-1] % isen]
+        vals = [fmts[0][-1] % ax, fmts[1][-1] % ay, btn_txt]
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
-        draw_utf8(px, f8, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
-        draw_utf8(px, f8, zh, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        draw_mix6(px, f6, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"])
         return im, vals
 
     cases = [

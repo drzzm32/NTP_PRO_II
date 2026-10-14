@@ -32,7 +32,9 @@ void oledRectC(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t color);
       要自己留够余量。 */
 void oledString6(uint16_t x, uint16_t y, uint8_t color, const char* str);
 /* 只画前 n 个字符（n<=8），发出去的宽度按 4 的倍数补齐 —— 中英混排时必须用这个：
-   固定发 48 像素会在串尾多擦掉最多 48 像素，把右边的东西清掉。 */
-void oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_t n);
+   固定发 48 像素会在串尾多擦掉最多 48 像素，把右边的东西清掉。
+   **返回实际发出的宽度**（补齐到 4 的倍数）：调用方要用它推进笔位，别自己再算
+   一遍 —— 那个公式一旦和这里不一致，后面接的中文就会落在非 4 对齐的 x 上。 */
+uint16_t oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_t n);
 void oledCJK12(uint16_t x, uint16_t y, uint8_t color, const uint8_t* glyph);
 #endif

@@ -324,12 +324,12 @@ static void clearBuf(uint8_t* __xdata buf, uint16_t n, uint8_t bg) {
 static __xdata uint8_t oled_buf6[(OLED_S6_W / 2u) * 8u];    /* 192 */
 static __xdata uint8_t oled_buf12[(12u / 2u) * 12u];        /* 72 */
 
-void oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_t n) {
+uint16_t oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_t n) {
     static uint8_t  __xdata i, ch;
     static uint16_t __xdata w;
     const uint8_t* f6 = fontGet(0x02);              /* font_6x8，见 font.c */
 
-    if (n == 0u) return;
+    if (n == 0u) return 0;
     if (n > OLED_S6_CHARS) n = OLED_S6_CHARS;
 
     /* 只发实际要用的宽度，补齐到 4 的倍数（不够 4 的倍数时地址窗口会向上对齐，
@@ -341,12 +341,21 @@ void oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_
         ch = (uint8_t) str[i];
         if (ch < 0x20u || ch > 0x7Bu) ch = 0x20u;   /* 表外画空格：font_6x8 只到 0x7B */
         bl_buf = oled_buf6; bl_glyph = f6 + (uint16_t) (ch - 0x20u) * 6u;
-        bl_w = OLED_S6_W;   bl_ox = (uint16_t) (i * 6u); bl_oy = 0;
+        /* ⚠️ 缓冲行距必须**等于传输宽度 w**，不能写死 48。
+           oledTransfer() 对位图是"顺序发 w*h/2 字节"，也就是面板期望 ptr 是
+           **每行 w/2 字节紧凑排**；缓冲如果按 48 像素一行排，只要 w < 48 就对不上，
+           行与行错位、画出来是花的。之前就是这里写死 48，导致
+             * 偏置右侧的 "2047mV"（7 字 -> w=44）
+             * X轴/Y轴 的 "X"/"Y"（1 字 -> w=8）
+             * 状态栏的 "USB"（3 字 -> w=20）
+           这三处全花；而正好 8 字的段（w=48）行距巧合相等，所以看着是好的。 */
+        bl_w = w;           bl_ox = (uint16_t) (i * 6u); bl_oy = 0;
         bl_gw = 6; bl_gh = 8;
         bl_fg = (uint8_t) (color & 0x0F); bl_bg = (uint8_t) (color >> 4);
         blitGlyph();
     }
     oledTransfer(x, y, w, 8, oled_buf6, 0);
+    return w;   /* 实际发出的宽度，调用方用它推进笔位 */
 }
 
 void oledString6(uint16_t x, uint16_t y, uint8_t color, const char* str) {
@@ -354,10 +363,7 @@ void oledString6(uint16_t x, uint16_t y, uint8_t color, const char* str) {
 
     while (*str) {
         for (n = 0; n < OLED_S6_CHARS && str[n]; n++) ;
-        oledString6N(x, y, color, str, n);
-        /* 推进量用**补齐后的宽度**：下一块的起点必须还是 4 的倍数，
-           否则 oledTransfer 的地址窗口（按 x/4 对齐）会偏，整块画面错位 */
-        x += (uint16_t) ((((6u * n) + 3u) / 4u) * 4u);
+        x += oledString6N(x, y, color, str, n);
         str += n;
     }
 }

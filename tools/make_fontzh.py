@@ -38,6 +38,7 @@ except ImportError:                                     # pragma: no cover
 ROOT = Path(__file__).resolve().parent.parent           # NTP_PRO_II/
 DEFAULT_TTF = ROOT / "tools" / "fusion-pixel-8px-monospaced-zh_hans.ms.bitmap.ttf"
 OUT_C = ROOT / "fontzh_data.c"
+OUT_H = ROOT / "fontzh_data.h"   # 只放尺寸，供 fontzh.h include
 
 # 扫字表时跳过的目录（生成物自己、构建产物）
 SKIP_DIRS = {"out", "build", "dist", "dist_onedir", ".git", "__pycache__"}
@@ -141,7 +142,7 @@ def render_glyph(font, ch: str, w: int, h: int) -> tuple:
     ImageDraw.Draw(im).text((0, 0), ch, font=font, fill=255)
     px = im.load()
 
-    segs = h // 8
+    segs = (h + 7) // 8      # 12 高也要 2 段；最后一段不满 8 行，高位留 0
     out = bytearray(w * segs)
     ink = False
     for seg in range(segs):
@@ -160,7 +161,7 @@ def render_glyph(font, ch: str, w: int, h: int) -> tuple:
 
 
 def art(bits: bytes, w: int, h: int) -> list:
-    segs = h // 8
+    segs = (h + 7) // 8      # 12 高也要 2 段；最后一段不满 8 行，高位留 0
     rows = []
     for row in range(h):
         s = ""
@@ -185,16 +186,16 @@ def main() -> int:
     w, h, depth = strike_size(ttf)
     print(f"源字体 {ttf.name}: 设计点阵 {w}x{h}, {depth}bpp")
 
-    # ⚠️ 硬拦截：oledBinary() 按 byte[f] 的 bit[row%8]、f = W*(row/8)+col 打包，
-    #    要求 **宽是 4 的倍数、高是 8 的倍数**（每 8 行一段、每行 W/4 个字）。
-    #    不满足时本脚本会算出 per = w*h/8 字节，而 render_glyph 只能写出 w*(h//8) 字节
-    #    —— 静默产出长度不符的错数据。宁可在这里直接报错。
-    #    12px 那档字体是 12x12，两个条件都不满足：要支持它得加一个绘制原语
-    #    （12x12 按 6 字节/行打包、走 oledTransfer 直发），不是调参数能解决的。
-    if w % 4 or h % 8:
-        sys.exit(
-            f"❌ {w}x{h} 的格子画不了：oledBinary() 要求宽是 4 的倍数、高是 8 的倍数。\n"
-            f"   要支持这一档字体得先给固件加一个绘制原语（见本文件注释）。")
+    # 打包格式（固件侧的 blitGlyph() / oledCJK12() 按这个解）：
+    #     byte[w * (row // 8) + col] 的 bit[row % 8]
+    # 即"每行 w 个字节（列优先）、每 8 行一段"。**不要求 w 是 4 的倍数，
+    # 也不要求 h 是 8 的倍数** —— 宽度不足 4 的倍数的部分由固件用 nibble 缓冲补齐：
+    # oled.c 的 blitGlyph() 把字形合进一个 dst_w 像素宽的缓冲，最后整体 oledTransfer，
+    # dst_w 由调用方保证是 4 的倍数（oledCJK12 用 12、oledString6 用 48）。
+    # 12x12 就是这样：12 列 × 2 段 = 24 字节/字，第二段只用低 4 位。
+    if h != 12 and (w % 4 or h % 8):
+        print(f"   注意：{w}x{h} —— 固件侧现在只有 oledCJK12()(12x12) 和"
+              f" oledString6()(6x8) 两条路，别的尺寸得先加封装。")
 
     if args.chars:
         chars = {c for c in args.chars if ord(c) > 0x7F}
@@ -208,7 +209,8 @@ def main() -> int:
         return 0
 
     ordered = sorted(chars, key=ord)
-    per = (w * h) // 8
+    per = w * ((h + 7) // 8)          # 每字字节数 = 每行列数 × 段数
+    h_segs = (h + 7) // 8
     print(f"\n字表: {len(ordered)} 个字，点阵 {len(ordered) * per} 字节"
           f"（整份字体 {27689 * per:,} 字节，占了 {100.0 * len(ordered) / 27689:.2f}%）")
     print("   " + "".join(ordered))
@@ -276,6 +278,24 @@ def main() -> int:
 
     OUT_C.write_text("\n".join(lines), encoding="utf-8", newline="\r\n")
     print(f"\n写出 {OUT_C.relative_to(ROOT)}  ({OUT_C.stat().st_size:,} 字节)")
+    OUT_H.write_text("\n".join([
+        "/* 本文件由 tools/make_fontzh.py 生成 —— 别手改！",
+        " * 只放尺寸：fontzh.h include 它，这样换字体档位（8px/12px）不用手改代码。 */",
+        "#ifndef __FONTZH_DATA_H",
+        "#define __FONTZH_DATA_H",
+        "",
+        f"#define FONTZH_W     {w}",
+        f"#define FONTZH_H     {h}",
+        f"#define FONTZH_SEGS  {h_segs}          /* 每字占几个 8 行段 */",
+        f"#define FONTZH_BYTES {per}          /* 每字字节数 = W * SEGS */",
+        "",
+        "/* 与 12x12 中文混排时，6x8 ASCII 要下移这么多像素才是基线对齐：",
+        " * CJK 基线约在第 10 行、ASCII 在第 7 行，差 3。见 oledStringZh()。 */",
+        f"#define FONTZH_DY    {3 if h == 12 else 0}",
+        "",
+        "#endif",
+    ]), encoding="utf-8", newline="\r\n")
+    print(f"写出 {OUT_H.relative_to(ROOT)}  ({OUT_H.stat().st_size:,} 字节)  尺寸 {w}x{h}, {per} 字节/字")
     print(f"   共 {len(recs)} 字 × {per} 字节 = {len(recs) * per} 字节点阵")
     return 0
 

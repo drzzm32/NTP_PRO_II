@@ -24,7 +24,7 @@ const uint8_t* fontzhGet(uint16_t code) {
 
     for (i = 0; i < fontzh_count; i++)
         if (fontzh_codes[i] == code)
-            return fontzh_bits + (uint16_t) (i * (FONTZH_W * FONTZH_H / 8u));
+            return fontzh_bits + (uint16_t) (i * FONTZH_BYTES);   /* 12x12 时是 24，不是 W*H/8=18 */
 
     return 0;
 }

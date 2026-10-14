@@ -2,6 +2,7 @@
 #define __FONTZH_H
 
 #include <stdint.h>
+#include "fontzh_data.h"   /* 生成的：FONTZH_W/H/BYTES/DY */
 
 /* ============================================================================
  * 中文点阵子集（8x8）
@@ -18,13 +19,11 @@
  *    会得到空白。所以中文永远是 8x8，要和 8x16 的 ASCII 混排时靠垂直居中对策。
  * ========================================================================== */
 
-#define FONTZH_W 8
-#define FONTZH_H 8
 
 /* 生成的表，见 fontzh_data.c */
 extern const uint16_t fontzh_count;
 extern const uint16_t fontzh_codes[];   /* 码位，升序 */
-extern const uint8_t  fontzh_bits[];    /* 每字 FONTZH_W*FONTZH_H/8 = 8 字节 */
+extern const uint8_t  fontzh_bits[];    /* 每字 FONTZH_BYTES 字节（见 fontzh_data.h） */
 
 /* 按码位查字形，返回 8 字节的 1 位点阵（布局同 oledBinary()）；查不到返回 0 */
 const uint8_t* fontzhGet(uint16_t code);

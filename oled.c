@@ -324,33 +324,47 @@ static void clearBuf(uint8_t* __xdata buf, uint16_t n, uint8_t bg) {
 static __xdata uint8_t oled_buf6[(OLED_S6_W / 2u) * 8u];    /* 192 */
 static __xdata uint8_t oled_buf12[(12u / 2u) * 12u];        /* 72 */
 
-void oledString6(uint16_t x, uint16_t y, uint8_t color, const char* str) {
-    static uint8_t  __xdata n, i, ch;
-    static uint16_t __xdata cx;
+void oledString6N(uint16_t x, uint16_t y, uint8_t color, const char* str, uint8_t n) {
+    static uint8_t  __xdata i, ch;
+    static uint16_t __xdata w;
     const uint8_t* f6 = fontGet(0x02);              /* font_6x8，见 font.c */
 
-    cx = x;
+    if (n == 0u) return;
+    if (n > OLED_S6_CHARS) n = OLED_S6_CHARS;
+
+    /* 只发实际要用的宽度，补齐到 4 的倍数（不够 4 的倍数时地址窗口会向上对齐，
+       oledTransfer 里已按窗口算字节数，所以补齐是为了让相邻内容不被多擦）。 */
+    w = (uint16_t) (((6u * n) + 3u) / 4u) * 4u;
+
+    clearBuf(oled_buf6, (uint16_t) sizeof(oled_buf6), (uint8_t) (color >> 4));
+    for (i = 0; i < n; i++) {
+        ch = (uint8_t) str[i];
+        if (ch < 0x20u || ch > 0x7Bu) ch = 0x20u;   /* 表外画空格：font_6x8 只到 0x7B */
+        bl_buf = oled_buf6; bl_glyph = f6 + (uint16_t) (ch - 0x20u) * 6u;
+        bl_w = OLED_S6_W;   bl_ox = (uint16_t) (i * 6u); bl_oy = 0;
+        bl_gw = 6; bl_gh = 8;
+        bl_fg = (uint8_t) (color & 0x0F); bl_bg = (uint8_t) (color >> 4);
+        blitGlyph();
+    }
+    oledTransfer(x, y, w, 8, oled_buf6, 0);
+}
+
+void oledString6(uint16_t x, uint16_t y, uint8_t color, const char* str) {
+    static uint8_t __xdata n;
+
     while (*str) {
-        for (n = 0; n < OLED_S6_CHARS && str[n]; n++) ;     /* 这一块几个字 */
-        clearBuf(oled_buf6, (uint16_t) sizeof(oled_buf6), (uint8_t) (color >> 4));
-        for (i = 0; i < n; i++) {
-            ch = (uint8_t) str[i];
-            if (ch < 0x20u || ch > 0x7Bu) ch = 0x20u;       /* 表外画空格：font_6x8 只到 0x7B */
-            bl_buf = oled_buf6; bl_glyph = f6 + (uint16_t) (ch - 0x20u) * 6u;
-            bl_w = OLED_S6_W;   bl_ox = (uint16_t) (i * 6u); bl_oy = 0;
-            bl_gw = 6; bl_gh = 8;
-            bl_fg = (uint8_t) (color & 0x0F); bl_bg = (uint8_t) (color >> 4);
-            blitGlyph();
-        }
-        oledTransfer(cx, y, OLED_S6_W, 8, oled_buf6, 0);
-        cx += OLED_S6_W;
+        for (n = 0; n < OLED_S6_CHARS && str[n]; n++) ;
+        oledString6N(x, y, color, str, n);
+        /* 推进量用**补齐后的宽度**：下一块的起点必须还是 4 的倍数，
+           否则 oledTransfer 的地址窗口（按 x/4 对齐）会偏，整块画面错位 */
+        x += (uint16_t) ((((6u * n) + 3u) / 4u) * 4u);
         str += n;
     }
 }
-
 /* ---- 12x12 中文：单个字一次 ----
-   12 像素宽是 4 的倍数，窗口正好对齐；6 字节/行 × 12 行 = 72 字节。
-   生成的 fontzh_data.c 里每字 24 字节（12 列 × 2 段，第二段只用低 4 位）。 */
+   12 像素宽是 4 的倍数，地址窗口正好对齐；6 字节/行 × 12 行 = 72 字节缓冲。
+   生成的 fontzh_data.c 里每字 FONTZH_BYTES (=24) 字节：12 列 × 2 段，
+   第二段只用低 4 位（blitGlyph 会按 gh=12 把最后一段截断）。 */
 void oledCJK12(uint16_t x, uint16_t y, uint8_t color, const uint8_t* glyph) {
     clearBuf(oled_buf12, (uint16_t) sizeof(oled_buf12), (uint8_t) (color >> 4));
     bl_buf = oled_buf12; bl_glyph = glyph;

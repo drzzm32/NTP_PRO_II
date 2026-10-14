@@ -185,6 +185,17 @@ def main() -> int:
     w, h, depth = strike_size(ttf)
     print(f"源字体 {ttf.name}: 设计点阵 {w}x{h}, {depth}bpp")
 
+    # ⚠️ 硬拦截：oledBinary() 按 byte[f] 的 bit[row%8]、f = W*(row/8)+col 打包，
+    #    要求 **宽是 4 的倍数、高是 8 的倍数**（每 8 行一段、每行 W/4 个字）。
+    #    不满足时本脚本会算出 per = w*h/8 字节，而 render_glyph 只能写出 w*(h//8) 字节
+    #    —— 静默产出长度不符的错数据。宁可在这里直接报错。
+    #    12px 那档字体是 12x12，两个条件都不满足：要支持它得加一个绘制原语
+    #    （12x12 按 6 字节/行打包、走 oledTransfer 直发），不是调参数能解决的。
+    if w % 4 or h % 8:
+        sys.exit(
+            f"❌ {w}x{h} 的格子画不了：oledBinary() 要求宽是 4 的倍数、高是 8 的倍数。\n"
+            f"   要支持这一档字体得先给固件加一个绘制原语（见本文件注释）。")
+
     if args.chars:
         chars = {c for c in args.chars if ord(c) > 0x7F}
         print(f"   字表来自 --chars")

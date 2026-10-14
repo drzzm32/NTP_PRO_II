@@ -418,8 +418,13 @@ static void uiBand(uint8_t usb, uint8_t pwm_on, uint8_t estop) {
     oledString(UI_BAND_PWM_X,   UI_BAND_Y, 1, pwm_on ? UI_BAND_TXT : UI_BAND_DIM, "PWM");
 }
 
-/* 条形图（从 0 起）：先铺轨道再铺填充，px 是填充宽度。 */
+/* 条形图（从 0 起）：先铺轨道再铺填充，px 是填充宽度。
+   ⚠️ px 向下取整到 4 的倍数：SSD1322 的列地址横向粒度是 **4 个像素**（见 oledTransfer
+   里那段说明），窗口会向上对齐，所以取整之后"数值 → 条长"才是确定的，
+   不会多冒 1~3 个像素。代价是条长只有 128/4 = 32 档，做指示足够。 */
 static void uiBar(uint8_t idx, uint16_t y, uint16_t px) {
+    px &= (uint16_t) ~3u;                       /* 向下取整到 4 的倍数 */
+
     if (!ui_dirty && px == ui_px[idx]) return;
     ui_px[idx] = px;
 
@@ -427,10 +432,14 @@ static void uiBar(uint8_t idx, uint16_t y, uint16_t px) {
     if (px) oledRect(UI_BAR_X, y + UI_BAR_DY, px, UI_BAR_H, UI_FILL);
 }
 
-/* 条形图（以中点为 0）：USB 形态看两个轴用 —— 往左是负、往右是正。 */
+/* 条形图（以中点为 0）：USB 形态看两个轴用 —— 往左是负、往右是正。
+   中点 UI_BAR_X + UI_BAR_W/2 = 104 本身就是 4 的倍数，所以长度取整到 4 之后
+   左端 (104 - n*4) 与右端都还落在 4 的倍数上，和列地址对齐一致。 */
 static void uiBarMid(uint8_t idx, uint16_t y, int16_t v) {
     uint16_t half = UI_BAR_W / 2;
     int16_t  px   = (int16_t) ((int32_t) v * (int32_t) half / UI_AXIS_FULL);
+
+    px = (int16_t) (px / 4 * 4);                /* 同 uiBar：取整到 4 的倍数 */
 
     if (!ui_dirty && (uint16_t) px == ui_px[idx]) return;
     ui_px[idx] = (uint16_t) px;

@@ -317,8 +317,10 @@ def main() -> int:
         bar_mid(px, L["UI_ROW1_Y"], ax)
         bar_mid(px, L["UI_ROW2_Y"], ay)
         dirs(px, d, False)
-        btn_txt = "按键 " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
-        # 注意下标：ui_line[2] 在 USB 屏里是手工拼的（没有 sprintf），电流落在 ui_line[3]
+        # 信息行只有一项：按钮串后面直接接电流
+        # （同固件里 sprintf(ui_line[2] + k + 5 * 2, " 电流%6dmA", isen)）
+        btn_txt = ("按键 " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
+                   + " 电流%6dmA" % isen)
         vals = [fmts[0][-1] % ax, fmts[1][-1] % ay, btn_txt]
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])

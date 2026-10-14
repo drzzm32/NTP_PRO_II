@@ -29,7 +29,9 @@
  *        K2 开, K3 关 → 额定 12V（右线性手柄 v_off 无效）
  *        K2 开, K3 开 → v_off * TRACK_MV_PER_COUNT
  *        K2 关, K3 开 → pwr  * TRACK_MV_PER_COUNT + v_off
- *        K2 关, K3 关 → v_off * TRACK_MV_PER_COUNT
+ *        K2 关, K3 关 → (pwr / ADC_FULL) * (v_off * TRACK_MV_PER_COUNT)
+ *                           （AIN1 当比例、AIN3 当上限：拧 AIN3 定上限，
+ *                            上限仍是 6 倍读数；拧 AIN1 在上限内按比例取压）
  *
  * OLED（256x64 / 4 位灰度）两种形态各一屏，见 uiShowLocal() / uiShowUsb()。
  * 界面是扁平化 + 灰度分层，右侧一列方向箭头和那三只物理 LED 等高对应，
@@ -191,8 +193,16 @@ static uint16_t setpointMv(uint8_t pwm, uint8_t vctl, uint16_t v_off, uint16_t p
     if (pwm)                                     /* PWM 输出形态 */
         return vctl ? (uint16_t) (v_off * TRACK_MV_PER_COUNT)
                   : (uint16_t) TRACK_MV_RATED;  /* 额定 12V，v_off 无效 */
-    return vctl ? (uint16_t) (pwr * TRACK_MV_PER_COUNT + v_off)
-              : (uint16_t) (v_off * TRACK_MV_PER_COUNT);
+    if (vctl)
+        return (uint16_t) (pwr * TRACK_MV_PER_COUNT + v_off);
+
+    /* K2 关、K3 关：**AIN1 当比例、AIN3 当上限**。
+          vout = (pwr / ADC_FULL) × (v_off × TRACK_MV_PER_COUNT)
+       也就是 AIN3 决定这条曲线的上限（仍然是 6 倍读数），AIN1 在 0~上限之间按比例
+       取压 —— 拧 AIN1 是"取多少"，拧 AIN3 是"最多能给到多少"。
+       ⚠️ 中间量必须走 32 位：pwr 与 v_off 都能到 2047，2047×2047×6 ≈ 2.5e7，
+          16 位放不下（和 currentMa() 里那个溢出是同一类坑）。 */
+    return (uint16_t) (((uint32_t) pwr * v_off * TRACK_MV_PER_COUNT) / ADC_FULL);
 }
 
 
@@ -420,7 +430,10 @@ static void uiBand(uint8_t usb, uint8_t pwm_on, uint8_t estop) {
     oledString(UI_BAND_TITLE_X, UI_BAND_Y, 1, UI_BAND_TXT, "NTP PRO II");
     /* 急停用中文更醒目；状态带每次变化都是整条重画，所以不用手动擦掉旧字 */
     if (estop) oledStringZh(UI_BAND_STOP_X, UI_BAND_Y, UI_BAND_TXT, "急停");
-    oledStringZh(UI_BAND_MODE_X,  UI_BAND_Y, UI_BAND_TXT, usb ? "USB" : "本机");
+    /* 模式：USB 是 ASCII，直接用 8x16 字库，和右边的 PWM 一样大；
+       "本机"是中文，只能用 12x12 子集字库（没有更大的中文档位） */
+    if (usb) oledString(UI_BAND_MODE_X, UI_BAND_Y, 1, UI_BAND_TXT, "USB");
+    else     oledStringZh(UI_BAND_MODE_X, UI_BAND_Y, UI_BAND_TXT, "本机");
     oledString(UI_BAND_PWM_X,   UI_BAND_Y, 1, pwm_on ? UI_BAND_TXT : UI_BAND_DIM, "PWM");
 }
 

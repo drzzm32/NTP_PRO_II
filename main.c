@@ -491,7 +491,11 @@ static void uiDir(int8_t dir, uint8_t estop) {
 static void uiFrame(uint8_t usb) {
     /* 中文标签走 12x12 子集字库，oledStringZh 会把它在 16px 的行里垂直居中，
        并把同一行里的 ASCII 下移 3 像素做基线对齐 */
-    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X轴"   : "电压");
+    /* 标签左右对齐："电  压"中间是**两个半角空格**（6×2 = 12px，正好一个
+       12x12 字格），这样两行标签都是 36px、左右两边都跟"占空比"对得齐。
+       （一个全角空格 U+3000 也是 12px，但生成的字库里没有它的墨迹、会走
+        "缺字占一格"的路径，不如半角空格直白。） */
+    oledStringZh(0, UI_ROW1_Y, UI_LABEL, usb ? "X轴"   : "电  压");
     oledStringZh(0, UI_ROW2_Y, UI_LABEL, usb ? "Y轴"   : "占空比");
 }
 

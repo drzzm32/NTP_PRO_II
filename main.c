@@ -564,8 +564,7 @@ void main() {
     delay(10);
 
     oledInit();
-    oledLogo();                 /* 开机 logo，停 1 秒给人看 */
-    delay(1000);
+    oledLogo();
 
     adcInit();
     dacInit();
@@ -599,6 +598,8 @@ void main() {
 
     usbDevInit();
     EA = 1;                     /* 中断全开：USB 和 PWM 的中断从这里开始服务 */
+
+    delay(2000);    /* 开机 logo，停 2 秒给人看 */
 
     /* 形态判定期间屏上不至于全黑：先把状态带和标题铺上（此刻还不知道形态，
        所以不碰 ui_band_c 缓存 —— 等形态定下来后 uiBand() 会连状态一起重画）。 */

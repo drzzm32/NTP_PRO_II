@@ -186,7 +186,7 @@ uint8_t* block_recv_ptr = NULL;
 uint16_t block_recv_pos = 0;
 uint16_t block_recv_siz = 0;
 
-void __uart0_interrupt() __interrupt (INT_NO_UART0) __using (2) {
+void __uart0_interrupt() __interrupt (INT_NO_UART0) {
     if (TI) {
         TI = 0;
         busy = 0;
@@ -376,7 +376,7 @@ uint16_t adcGet(uint8_t channel) {
     return (uint16_t) (adc_sum[channel] >> ADC_FIFO_SHIFT);
 }
 
-void __pwm1_interrupt() __interrupt (INT_NO_PWM1) __using (2) {
+void __pwm1_interrupt() __interrupt (INT_NO_PWM1) {
     if (PWM_CTRL & bPWM_IF_END)
         PWM_CTRL |= bPWM_IF_END;
 }

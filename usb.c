@@ -229,7 +229,7 @@ volatile __bit      HIDIN = 0;
 volatile __bit      EP1Busy = 0;                                                            //手柄IN包已装好但主机还没取走
 #define UsbSetupBuf ((PUSB_SETUP_REQ)Ep0Buffer)
 
-void __usb_interrupt() __interrupt (INT_NO_USB) __using (1) {
+void __usb_interrupt() __interrupt (INT_NO_USB) {
     uint8_t len;
 	if (UIF_TRANSFER) {                                                                     // USB传输完成
 		switch (USB_INT_ST & (MASK_UIS_TOKEN | MASK_UIS_ENDP)) {                            // 分析操作令牌和端点号

@@ -34,6 +34,7 @@ except ImportError:                                     # pragma: no cover
 
 ROOT = Path(__file__).resolve().parent.parent           # NTP_PRO_II/
 FONT_C = ROOT / "font.c"
+FONTZH_C = ROOT / "fontzh_data.c"                       # 生成的中文子集
 MAIN_C = ROOT / "main.c"
 
 SCREEN_W, SCREEN_H = 256, 64
@@ -47,7 +48,11 @@ LAYOUT_MACROS = ("UI_BAND_Y", "UI_BAND_H", "UI_ROW1_Y", "UI_ROW2_Y",
 PALETTE_MACROS = ("UI_BAND_BG", "UI_TXT", "UI_LABEL", "UI_TRACK", "UI_FILL",
                   "UI_BAND_TXT", "UI_BAND_DIM", "UI_DIR_HOT", "UI_DIR_DIM")
 
-REQUIRED_LITERALS = ("Btn ", "NTP PRO II", "STOP ", "LOCAL", "USB  ", "PWM", "Vset", "Duty")
+REQUIRED_LITERALS = ("NTP PRO II", "PWM", "电压", "占空比", "X轴", "Y轴",
+                     "电流", "频率", "偏置", "急停", "本机", "USB", "按键")
+
+# main.c 里 ui_line 是 char[4][40]，格式化后的 **UTF-8 字节数**不能超这个
+LINE_BUF = 40
 
 
 def read(p: Path) -> str:
@@ -67,6 +72,19 @@ def grab_bytes(src: str, name: str) -> bytes:
         sys.exit(f"找不到数组 {name}[]")
     return bytes(int(x, 16) for x in
                  re.findall(r"0x([0-9A-Fa-f]{2})", strip_comments(m.group(2))))
+
+
+def load_fontzh() -> dict:
+    """读 tools/make_fontzh.py 生成的中文子集 → {码位: 8 字节点阵}。"""
+    if not FONTZH_C.exists():
+        print(f"   （没有 {FONTZH_C.name}，中文会按缺字画成空白）")
+        return {}
+    src = strip_comments(read(FONTZH_C))
+    m = re.search(r"fontzh_codes\[\]\s*=\s*\{(.*?)\};", src, re.S)
+    codes = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{4})", m.group(1))] if m else []
+    bits = grab_bytes(src, "fontzh_bits")
+    return {c: bits[i * 8:(i + 1) * 8] for i, c in enumerate(codes)
+            if len(bits[i * 8:(i + 1) * 8]) == 8}
 
 
 def macro(mc: str, name: str) -> int:
@@ -107,6 +125,27 @@ def draw_glyph(px, glyph: bytes, x0: int, y0: int, w: int, h: int, color: int) -
                 px[x, y] = ((fg if (glyph[f] >> (row % 8)) & 1 else bg)) * 17
 
 
+def draw_utf8(px, font: bytes, zh: dict, x0: int, y0: int, s: str, color: int,
+              w: int = 8, h: int = 16) -> int:
+    """镜像 main.c 的 oledStringZh()：非 ASCII 查中文字表（8x8，在 h 里垂直居中），
+    其余交给点阵字库。返回结束时的 x。"""
+    x = x0
+    off = (h - 8) // 2
+    for ch in s:
+        if ch == "\n":
+            x = 0
+            y0 += h + 2
+            continue
+        if ord(ch) < 0x80:
+            draw_text(px, font, x, y0, ch, color, w, h)
+        else:
+            g = zh.get(ord(ch))
+            if g:
+                draw_glyph(px, g, x, y0 + off, 8, 8, color)
+        x += 8
+    return x
+
+
 def rect(px, x: int, y: int, w: int, h: int, color: int) -> None:
     """等价于 oledRect()：整块填同一个灰度（color & 0x0F）。"""
     v = (color & 0x0F) * 17
@@ -131,8 +170,11 @@ def main() -> int:
     g_up = grab_bytes(mc, "ui_dir_up")
     g_mid = grab_bytes(mc, "ui_dir_mid")
     g_dn = grab_bytes(mc, "ui_dir_dn")
+    zh = load_fontzh()
     print(f"字模: font_8x8 {len(f8)}B/{len(f8)//8} 字, "
           f"font_8x16 {len(f16)}B/{len(f16)//16} 字, 箭头 {len(g_up)}B x3")
+    print(f"中文子集: {len(zh)} 个字（来自 {FONTZH_C.name}）"
+          f"{''.join(chr(c) for c in sorted(zh))}")
 
     L = {n: macro(mc, n) for n in LAYOUT_MACROS}
     C = {n: macro(mc, n) for n in PALETTE_MACROS}
@@ -157,10 +199,11 @@ def main() -> int:
     def band(px, usb: bool, pwm_on: bool, estop: bool) -> None:
         rect(px, 0, L["UI_BAND_Y"], SCREEN_W, L["UI_BAND_H"], C["UI_BAND_BG"])
         draw_text(px, f16, L["UI_BAND_TITLE_X"], L["UI_BAND_Y"], "NTP PRO II", C["UI_BAND_TXT"])
-        draw_text(px, f16, L["UI_BAND_STOP_X"], L["UI_BAND_Y"],
-                  "STOP " if estop else "     ", C["UI_BAND_TXT"])
-        draw_text(px, f16, L["UI_BAND_MODE_X"], L["UI_BAND_Y"],
-                  "USB  " if usb else "LOCAL", C["UI_BAND_TXT"])
+        # 状态带整条重画，所以急停那两个字不用手动擦（和 main.c 的 uiBand 一致）
+        if estop:
+            draw_utf8(px, f16, zh, L["UI_BAND_STOP_X"], L["UI_BAND_Y"], "急停", C["UI_BAND_TXT"])
+        draw_utf8(px, f16, zh, L["UI_BAND_MODE_X"], L["UI_BAND_Y"],
+                  "USB" if usb else "本机", C["UI_BAND_TXT"])
         draw_text(px, f16, L["UI_BAND_PWM_X"], L["UI_BAND_Y"], "PWM",
                   C["UI_BAND_TXT"] if pwm_on else C["UI_BAND_DIM"])
 
@@ -194,8 +237,8 @@ def main() -> int:
         im = blank()
         px = im.load()
         band(px, False, bool(pwm_on), bool(estop))
-        draw_text(px, f16, 0, L["UI_ROW1_Y"], "Vset", C["UI_LABEL"])
-        draw_text(px, f16, 0, L["UI_ROW2_Y"], "Duty", C["UI_LABEL"])
+        draw_utf8(px, f16, zh, 0, L["UI_ROW1_Y"], "电压", C["UI_LABEL"])
+        draw_utf8(px, f16, zh, 0, L["UI_ROW2_Y"], "占空比", C["UI_LABEL"])
         bar(px, L["UI_ROW1_Y"], int(vset * L["UI_BAR_W"] / L["UI_VSET_FULL_MV"]))
         bar(px, L["UI_ROW2_Y"], int(duty * L["UI_BAR_W"] / 100))
         dirs(px, d, bool(estop))
@@ -205,26 +248,26 @@ def main() -> int:
                 fmts[3][0] % voff]
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
-        draw_text(px, f8, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
-        draw_text(px, f8, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        draw_utf8(px, f8, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
+        draw_utf8(px, f8, zh, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
         return im, vals
 
     def usb(ax, ay, d, btn, isen, pwm_on):
         im = blank()
         px = im.load()
         band(px, True, bool(pwm_on), False)
-        draw_text(px, f16, 0, L["UI_ROW1_Y"], "X", C["UI_LABEL"])
-        draw_text(px, f16, 0, L["UI_ROW2_Y"], "Y", C["UI_LABEL"])
+        draw_utf8(px, f16, zh, 0, L["UI_ROW1_Y"], "X轴", C["UI_LABEL"])
+        draw_utf8(px, f16, zh, 0, L["UI_ROW2_Y"], "Y轴", C["UI_LABEL"])
         bar_mid(px, L["UI_ROW1_Y"], ax)
         bar_mid(px, L["UI_ROW2_Y"], ay)
         dirs(px, d, False)
-        btn_txt = "Btn " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
-        # 注意下标：ui_line[2] 在 USB 屏里是手工拼的（没有 sprintf），Isen 落在 ui_line[3]
+        btn_txt = "按键 " + "".join(f"K{i + 1}" if (btn >> i) & 1 else "--" for i in range(5))
+        # 注意下标：ui_line[2] 在 USB 屏里是手工拼的（没有 sprintf），电流落在 ui_line[3]
         vals = [fmts[0][-1] % ax, fmts[1][-1] % ay, btn_txt, fmts[3][-1] % isen]
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW1_Y"], vals[0], C["UI_TXT"])
         draw_text(px, f16, L["UI_VAL_X"], L["UI_ROW2_Y"], vals[1], C["UI_TXT"])
-        draw_text(px, f8, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
-        draw_text(px, f8, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
+        draw_utf8(px, f8, zh, 0, L["UI_INFO1_Y"], vals[2], C["UI_TXT"], 8, 8)
+        draw_utf8(px, f8, zh, 0, L["UI_INFO2_Y"], vals[3], C["UI_TXT"], 8, 8)
         return im, vals
 
     cases = [

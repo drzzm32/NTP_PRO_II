@@ -9,15 +9,22 @@
 
 static uint16_t oled_buffer[FONT_MAX_WIDTH * 8 / 4];
 
-const uint8_t* font;
 /* f_w / f_h 是 uint16_t：位图宽度最大等于屏宽 256，uint8_t 装不下。
-   pos / off 只在文字那条路上用（宽 ≤ FONT_MAX_WIDTH），保持 uint8_t。 */
-uint16_t f_w, f_h;
+   pos / off 只在文字那条路上用（宽 ≤ FONT_MAX_WIDTH），保持 uint8_t。
+   ⚠️ 一部分显式加了 __xdata：SDCC 的 --model-large **只管指针宽度**，变量的默认
+   存储仍是 __data，而直接寻址区一共只有 128 字节 —— 本工程加上中文字库后就卡在
+   这里（链接报 "Couldn't get N bytes ... for area OSEG"，因为函数局部量也抢这块）。
+   所以把"每次绘制才碰一次"的量挪去 xdata，**把真正在像素/字节内层循环里的
+   pos / off / seg / col / row / io 留在直接寻址区**，免得拖慢刷屏。 */
+__xdata uint16_t f_w, f_h;
 uint8_t pos, off;
-uint16_t f;
+__xdata uint16_t f;
+/* 注意写法：__xdata 在 `*` 之后修饰的是**指针本身**（放 xdata）；
+   写在类型前面修饰的会变成"指向 xdata 的指针"，SDCC 会报 error 47 类型不匹配。 */
+const uint8_t* __xdata font;
 
-uint8_t xs, ys, xe, ye;
-uint8_t a, b, end, cnt;
+__xdata uint8_t xs, ys, xe, ye;
+__xdata uint8_t a, b, end, cnt;
 
 uint8_t seg, col, row;
 uint16_t io;
